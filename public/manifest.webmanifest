@@ -1,0 +1,11 @@
+{
+  "name": "Lathe",
+  "short_name": "Lathe",
+  "description": "Image and PDF tools that run in your browser. Files are never uploaded.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101b30",
+  "theme_color": "#101b30",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }, { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }, { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }],
+  "file_handlers": [{ "action": "/", "accept": { "application/pdf": [".pdf"], "image/*": [".jpg", ".jpeg", ".png", ".webp", ".avif", ".heic", ".heif", ".gif", ".tif", ".tiff", ".bmp", ".jxl", ".svg"] } }]
+}

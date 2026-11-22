@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem
+    url: https://github.com/AshwinSathian/lathe/security/advisories/new
+    about: Please report vulnerabilities privately.
+  - name: Ask a question
+    url: https://github.com/AshwinSathian/lathe/discussions
+    about: Questions and ideas that are not yet a clear request.

@@ -1,0 +1,39 @@
+---
+import Base from "../layouts/Base.astro";
+import { tools, GROUPS } from "../data/tools";
+const n = tools.length;
+const title = "Lathe: free image and PDF tools that never upload your files";
+const description = `${n} free tools to convert, compress, edit and secure images and PDFs, including HEIC, AVIF and AI background removal. Everything runs in your browser.`;
+const ld = [
+  { "@context": "https://schema.org", "@type": "WebApplication", name: "Lathe", url: Astro.site.href, description, applicationCategory: "MultimediaApplication", operatingSystem: "Any modern browser", browserRequirements: "Requires JavaScript and WebAssembly", isAccessibleForFree: true, offers: { "@type": "Offer", price: "0", priceCurrency: "USD" }, featureList: tools.filter((t) => !t.run).map((t) => t.name), author: { "@type": "Person", name: "Ashwin Sathian", url: "https://ashwinsathian.com" } },
+  { "@context": "https://schema.org", "@type": "WebSite", name: "Lathe", url: Astro.site.href },
+];
+const shelf = (kind: "image" | "pdf") => GROUPS[kind].map((g) => ({ g, items: tools.filter((t) => t.kind === kind && t.group === g && !t.run) }));
+const popular = ["heic-to-jpg", "webp-to-png", "png-to-jpg", "jpg-to-heic", "jpg-to-avif", "svg-to-png"].map((id) => tools.find((t) => t.id === id));
+---
+<Base title={title} description={description} jsonld={ld}>
+  <section class="wrap hero">
+    <h1>Work on your files without giving them away</h1>
+    <p class="lede">{n} tools for images and PDFs that run on your own device. Nothing is uploaded, and there is no account to make.</p>
+    <label class="spindle" id="spindle">
+      <canvas aria-hidden="true"></canvas>
+      <span class="vh">Choose images or PDFs</span>
+      <input id="home-input" type="file" multiple accept="image/*,application/pdf,.heic,.heif,.avif,.jxl,.tif,.tiff,.bmp,.ico,.svg,.pdf" />
+    </label>
+    <div class="dropline"><span><strong>Drop an image or PDF on the spindle</strong>, click it, or paste.</span><span>Your file stays in this tab.</span></div>
+    <div class="route" id="route" aria-live="polite"><h2></h2><div class="chips"></div></div>
+  </section>
+  <div class="wrap index">
+    <section id="images" aria-labelledby="h-img"><h2 id="h-img">Images</h2>
+      {shelf("image").map(({ g, items }) => <div class="shelf"><h3>{g}</h3><ul>{items.map((t) => <li><a href={`/${t.id}`}>{t.name}</a></li>)}{g === "Convert" && popular.map((t) => <li><a href={`/${t.id}`}>{t.name}</a></li>)}</ul></div>)}
+    </section>
+    <section id="pdf" aria-labelledby="h-pdf"><h2 id="h-pdf">PDF</h2>
+      {shelf("pdf").map(({ g, items }) => <div class="shelf"><h3>{g}</h3><ul>{items.map((t) => <li><a href={`/${t.id}`}>{t.name}</a></li>)}</ul></div>)}
+    </section>
+  </div>
+  <div class="wrap proof">
+    <div><h2>Private by how it is built</h2><p>Lathe has no server that could receive your files. Once a tool has run, it keeps working with your Wi-Fi off.</p></div>
+    <div><h2>Real engines, in a tab</h2><p>MozJPEG, AVIF, JPEG XL, qpdf and PDF.js run as WebAssembly. Photo edits run on your GPU, so sliders respond as you drag.</p></div>
+    <div><h2>AI that stays local</h2><p>Background removal, upscaling, OCR and face blur run on your device. A model downloads once, after you agree, then it is cached.</p></div>
+  </div>
+</Base>

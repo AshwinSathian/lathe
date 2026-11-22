@@ -1,0 +1,21 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="How privacy works in Lathe" description="Lathe processes images and PDFs on your device. Here is exactly what is downloaded, what is stored and what never leaves your browser.">
+  <article class="wrap"><div class="prose">
+    <h1>How privacy works here</h1>
+    <p>Lathe has no upload endpoint. The site is a set of static files, and every tool runs in your browser tab using WebAssembly, WebGL and Web Workers.</p>
+    <h2>What leaves your device</h2>
+    <p>Your files do not. Neither do passwords, signatures or text you type. The site has no analytics, cookies or accounts.</p>
+    <h2>What your browser downloads</h2>
+    <p>The page and its engines come from this site. Three AI features need extra data, and Lathe asks before fetching it: the background removal and upscaling models come from Hugging Face, their runtime and OCR language data come from jsDelivr. Those are downloads to your device. Those services can see your IP address, as with any download, but they receive nothing from your files.</p>
+    <h2>What is stored</h2>
+    <p>Your browser caches the app and any models so they work offline. Tool settings are kept in local storage, except passwords, which are never saved. When you move a file from one tool to another it is held briefly in the browser's own database and deleted as soon as the next tool opens it.</p>
+    <h2>Check it yourself</h2>
+    <p>Open your browser's developer tools, select the Network tab and run any tool. You will see no request carrying your file. A strict Content Security Policy also limits which addresses this page can contact at all.</p>
+    <h2>Limits worth knowing</h2>
+    <ul><li>Removing a PDF password requires that password. Lathe does not crack files.</li><li>Sign PDF adds a visual signature, not a certificate-based digital signature.</li><li>Blur and pixelation can sometimes be reversed. Use a solid block for anything sensitive.</li><li>Without WebGPU, background removal uses a smaller model built for people, so products and objects cut out less well.</li></ul>
+    <h2>Open source inside</h2>
+    <p>Lathe is built on open-source engines. Their licences are listed in <a href="/licenses.txt">licenses.txt</a>.</p>
+  </div></article>
+</Base>

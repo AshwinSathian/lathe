@@ -1,0 +1,1 @@
+{ "extends": "astro/tsconfigs/strict", "compilerOptions": { "lib": ["ES2023", "DOM", "DOM.Iterable", "WebWorker"], "noImplicitAny": false, "strictNullChecks": false }, "include": ["src", "tests"] }

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://lathe.ashwinsathian.com/sitemap-index.xml

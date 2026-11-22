@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lathe",
+  "account_id": "5e8cabf1f94e15e681dfe58d4164a8ed",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "./dist", "html_handling": "auto-trailing-slash", "not_found_handling": "404-page" },
+  // Only the canonical host serves the site, so search engines never see a duplicate on workers.dev.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "lathe.ashwinsathian.com", "custom_domain": true }]
+}

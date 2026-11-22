@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    labels: [dependencies]
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    # The runtime loader and the CDN binary must move together, so these are updated and tested by hand.
+    ignore:
+      - dependency-name: "@huggingface/transformers"
+      - dependency-name: onnxruntime-web
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    labels: [dependencies]
+    groups:
+      actions:
+        patterns: ["*"]

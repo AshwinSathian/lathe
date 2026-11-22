@@ -1,0 +1,14 @@
+name: Tool request
+description: Suggest a new tool or a change to an existing one.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: job
+    attributes: { label: What are you trying to do?, placeholder: "I scan receipts and need them straightened before filing." }
+    validations: { required: true }
+  - type: textarea
+    id: today
+    attributes: { label: What do you use today? }
+  - type: textarea
+    id: how
+    attributes: { label: Could it run in a browser?, description: Optional. A library or browser API that could do it. Lathe never sends files to a server. }

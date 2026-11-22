@@ -1,0 +1,38 @@
+---
+import Base from "../layouts/Base.astro";
+import { tools, type Tool } from "../data/tools";
+export const getStaticPaths = () => tools.map((t) => ({ params: { tool: t.id }, props: { t } }));
+const { t } = Astro.props as { t: Tool };
+const site = Astro.site.href.replace(/\/$/, "");
+const noun = t.kind === "pdf" && !t.accepts.includes("image") ? "PDF" : t.kind === "pdf" ? "file" : "image";
+const title = `${t.name} free, no upload | Lathe`;
+const description = `${t.blurb} Runs in your browser, so your ${noun}s stay private.`.slice(0, 158);
+const related = tools.filter((x) => x.id !== t.id && x.kind === t.kind && x.group === t.group && !x.run).slice(0, 7);
+const steps = t.noInput ? ["Write or paste your text, or drop in a file.", "Adjust the settings.", `Select ${t.name} and download the result.`] : [`Drop your ${noun}${t.multi ? "s" : ""} on the bench, or click to choose.`, t.editor === "pages" ? "Drag pages into order, and rotate or delete any you like." : t.editor ? "Mark up the page or image directly." : t.controls.length ? "Adjust the settings." : "Check the file is the right one.", `Select ${t.name} and download the result.`];
+const uploaded = `No. ${t.name} runs entirely in your browser${t.model ? `. The ${t.model.name} model (${t.model.size}) is downloaded to your device once, after you agree, and your file is never sent anywhere` : ", and your file is never sent anywhere"}.`;
+const faq = [["Are my files uploaded?", uploaded], ["How does it work?", t.detail], ["Is it free?", "Yes. There is no account, watermark or limit on how many files you process. The practical limit is your device's memory."]];
+const ld = [
+  { "@context": "https://schema.org", "@type": "SoftwareApplication", name: `${t.name} by Lathe`, url: `${site}/${t.id}`, description: t.blurb, applicationCategory: "UtilitiesApplication", operatingSystem: "Any modern browser", isAccessibleForFree: true, offers: { "@type": "Offer", price: "0", priceCurrency: "USD" } },
+  { "@context": "https://schema.org", "@type": "HowTo", name: `How to use ${t.name}`, step: steps.map((text, i) => ({ "@type": "HowToStep", position: i + 1, text })) },
+  { "@context": "https://schema.org", "@type": "FAQPage", mainEntity: faq.map(([name, text]) => ({ "@type": "Question", name, acceptedAnswer: { "@type": "Answer", text } })) },
+  { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Lathe", item: `${site}/` }, { "@type": "ListItem", position: 2, name: t.name, item: `${site}/${t.id}` }] },
+];
+---
+<Base title={title} description={description} jsonld={ld}>
+  <div class="wrap">
+    <div class="head"><a class="crumb" href={t.kind === "pdf" ? "/#pdf" : "/#images"}>{t.kind === "pdf" ? "PDF" : "Images"}, {t.group}</a><h1>{t.name}</h1><p>{t.blurb}</p></div>
+    <div class="bench" id="bench" data-tool={JSON.stringify(t)}>
+      <div class="stage" id="stage"><div class="empty"><strong>{t.noInput ? "Write on the right, or drop a file here" : `Drop your ${noun}${t.multi ? "s" : ""} here`}</strong><span>or click to choose. It stays on this device.</span><input type="file" accept={t.accepts} multiple={t.multi} aria-label={`Choose ${noun}`} /></div></div>
+      <aside class="panel" id="panel" aria-label="Settings"><noscript><p class="alert">Lathe runs in your browser, so it needs JavaScript.</p></noscript></aside>
+    </div>
+    <div class="notes">
+      <article>
+        <h2>How to use {t.name}</h2>
+        <ol>{steps.map((s) => <li>{s}</li>)}</ol>
+        {faq.map(([q, a]) => <><h3>{q}</h3><p>{a}</p></>)}
+      </article>
+      {related.length > 0 && <nav aria-label="Related tools"><h2>Related tools</h2><ul>{related.map((x) => <li><a href={`/${x.id}`}>{x.name}</a></li>)}</ul></nav>}
+    </div>
+  </div>
+  <script>import "../app/workbench";</script>
+</Base>

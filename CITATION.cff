@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+message: If you use Lathe in your work, please cite it like this.
+title: Lathe
+type: software
+abstract: Image and PDF tools that run entirely in the browser.
+authors:
+  - given-names: Ashwin
+    family-names: Sathian
+repository-code: https://github.com/AshwinSathian/lathe
+url: https://lathe.ashwinsathian.com
+license: MIT
+version: 0.1.0
+date-released: 2026-11-22

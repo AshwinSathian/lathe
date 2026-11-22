@@ -1,0 +1,79 @@
+{
+  "name": "lathe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Image and PDF tools that run entirely in your browser. HEIC, AVIF, redaction, encryption, OCR and on-device AI, with no uploads.",
+  "license": "MIT",
+  "author": "Ashwin Sathian",
+  "homepage": "https://lathe.ashwinsathian.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AshwinSathian/lathe.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AshwinSathian/lathe/issues"
+  },
+  "keywords": [
+    "pdf",
+    "image",
+    "heic",
+    "avif",
+    "webassembly",
+    "webgpu",
+    "webcodecs",
+    "privacy",
+    "client-side",
+    "local-first",
+    "ocr",
+    "background-removal"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "npm run vendor && astro dev --port 4340",
+    "build": "npm run vendor && astro build && rm -f dist/_astro/ort-wasm*",
+    "preview": "astro preview --port 4341",
+    "test": "playwright test",
+    "vendor": "node scripts/vendor.mjs",
+    "check": "astro check",
+    "deploy": "npm run check && npm run build && playwright test && wrangler deploy",
+    "smoke": "LATHE_URL=https://lathe.ashwinsathian.com playwright test tests/tools.spec.ts tests/interaction.spec.ts tests/live.spec.ts",
+    "docs": "node scripts/gen-docs.mjs",
+    "check:docs": "node scripts/gen-docs.mjs --check",
+    "media": "node scripts/media.mjs"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.6",
+    "@huggingface/transformers": "^4.3.2",
+    "@jsquash/avif": "^2.1.1",
+    "@jsquash/jpeg": "^1.6.0",
+    "@jsquash/jxl": "^1.3.0",
+    "@jsquash/oxipng": "^2.3.0",
+    "@jsquash/png": "^3.1.1",
+    "@jsquash/webp": "^1.5.0",
+    "@mediapipe/tasks-vision": "^1.2.3",
+    "@neslinesli93/qpdf-wasm": "^0.3.1",
+    "astro": "^7.4.13",
+    "exifr": "^7.1.3",
+    "fflate": "^0.8.3",
+    "gifenc": "^1.0.3",
+    "imagetracerjs": "^1.2.6",
+    "libheif-js": "^1.23.5",
+    "marked": "^18.2.1",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.5.438",
+    "svgo": "^4.1.0",
+    "tesseract.js": "^7.0.0",
+    "utif2": "^4.1.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.65.1",
+    "sharp": "^0.35.5",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.166.0"
+  }
+}
