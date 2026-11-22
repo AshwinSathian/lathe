@@ -20,6 +20,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Files can be removed by keyboard, and focus no longer falls to the top of the page after an action
 - Controls and redaction marks stay visible and distinct in forced colours
 - On a phone, the photo stays in view while you adjust its sliders
+- Offline, an unvisited tool says so instead of showing the home page, and the tool finder keeps working
+- Opening many PDFs no longer leaves their workers running
+- A full browser store explains how to continue instead of doing nothing
 
 ## [0.1.8] - 2026-11-22
 

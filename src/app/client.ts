@@ -5,6 +5,9 @@ let worker: Worker;
 let nextJob = 1;
 const jobs = new Map<number, { res: (o: any) => void; rej: (e: Error) => void; onProgress?: (p: number, label?: string) => void }>();
 
+const OFFLINE = "You are offline, and this tool is not saved on this device yet. Open it once while online and it will work offline.";
+const explain = (m: string) => (!navigator.onLine && /fetch|import|load|module|network/i.test(m) ? OFFLINE : m);
+
 function engine() {
   if (worker) return worker;
   const w = worker = new Worker(new URL("../engine/worker.ts", import.meta.url), { type: "module" });
@@ -20,9 +23,9 @@ function engine() {
     const j = jobs.get(m.job);
     if (!j) return;
     if (m.t === "progress") j.onProgress?.(m.p, m.label);
-    else { jobs.delete(m.job); if (m.t === "done") j.res(m.outs); else j.rej(new Error(m.error)); }
+    else { jobs.delete(m.job); if (m.t === "done") j.res(m.outs); else j.rej(new Error(explain(m.error))); }
   };
-  w.onerror = (e) => { for (const j of jobs.values()) j.rej(new Error(e.message || "The engine stopped. The file may be too large for this device.")); jobs.clear(); worker = null; };
+  w.onerror = (e) => { for (const j of jobs.values()) j.rej(new Error(navigator.onLine ? e.message || "The engine stopped. The file may be too large for this device." : OFFLINE)); jobs.clear(); worker = null; };
   return worker;
 }
 
@@ -44,15 +47,18 @@ export const pdfFields = (file: In) => new Promise<any[]>((res, rej) => { const 
 // PDF.js keeps its own worker, so rendering here does not block the page.
 const docs = new Map<string, Promise<any>>();
 let pdfjs: Promise<any>;
+const dropDoc = (id: string) => { docs.get(id)?.then((d) => d.loadingTask.destroy()).catch(() => {}); docs.delete(id); };
 export function openPdf(key: string, blob: Blob) {
   const id = `${key}:${blob.size}`;
-  if (!docs.has(id)) {
+  // Most recently used last, so eviction never closes the document on screen.
+  if (docs.has(id)) { const open = docs.get(id); docs.delete(id); docs.set(id, open); }
+  else {
     pdfjs ??= Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.mjs?url")]).then(([lib, url]) => { lib.GlobalWorkerOptions.workerSrc = url.default; return lib; });
     docs.set(id, (async () => {
       const lib = await pdfjs, data = new Uint8Array(await blob.arrayBuffer());
       return lib.getDocument({ data, standardFontDataUrl: "/vendor/pdfjs/standard_fonts/", cMapUrl: "/vendor/pdfjs/cmaps/", cMapPacked: true, wasmUrl: "/vendor/pdfjs/wasm/", iccUrl: "/vendor/pdfjs/iccs/", isEvalSupported: false }).promise;
     })());
-    if (docs.size > 8) docs.delete(docs.keys().next().value);
+    if (docs.size > 8) dropDoc(docs.keys().next().value);
   }
   return docs.get(id);
 }
@@ -136,7 +142,8 @@ async function fetchPinned({ url, integrity }: { url: string; integrity?: string
 }
 const OPS: Record<string, (a: any, progress?: (got: number, total: number) => void) => Promise<any>> = {
   fetchPinned,
-  pageCount: async ({ doc, key }) => (await openPdf(key, doc)).numPages,
+  pageCount: async ({ doc, key }) => { const n = (await openPdf(key, doc)).numPages; dropDoc(`${key}:${doc.size}`); return n; },
+  closeDoc: async ({ key, size }) => dropDoc(`${key}:${size}`),
   async render({ doc, key, page, dpi, gray }) { const d = await openPdf(key, doc), c = await renderPage(d, page, dpi / 72, gray); return createImageBitmap(c); },
   async text({ doc, key, page }) {
     const d = await openPdf(key, doc), pg = await d.getPage(page + 1), vp = pg.getViewport({ scale: 1 }), tc = await pg.getTextContent();

@@ -144,3 +144,20 @@ test("on a phone the photo stays in view while adjusting sliders", async ({ page
   await expect(page.locator(".frame")).toBeInViewport();
   await expect(last).toBeInViewport();
 });
+
+test("a region can still be drawn by touch on an image, and added by keyboard", async ({ page }) => {
+  await open(page, "censor-image", "photo.jpg");
+  const frame = page.locator(".frame"); await expect(frame).toBeVisible();
+  // A synthetic pointer has no real id to capture.
+  await frame.evaluate((n) => { Element.prototype.setPointerCapture = () => {}; const r = n.getBoundingClientRect(), o = { bubbles: true, pointerId: 9, pointerType: "touch", clientX: r.x + 30, clientY: r.y + 30 }; n.querySelector("canvas").dispatchEvent(new PointerEvent("pointerdown", o)); n.dispatchEvent(new PointerEvent("pointermove", { ...o, clientX: r.x + 160, clientY: r.y + 120 })); n.dispatchEvent(new PointerEvent("pointerup", o)); });
+  await expect(page.locator(".frame .box")).toHaveCount(1);
+  const add = page.getByRole("button", { name: "Add box" }); await add.focus(); await page.keyboard.press("Enter");
+  await expect(page.locator(".frame .box")).toHaveCount(2);
+  await expect(page.locator(".frame .box").nth(1)).toBeFocused();
+});
+test("hiding part of an image with no box marked is refused", async ({ page }) => {
+  await open(page, "censor-image", "photo.jpg");
+  await go(page).click();
+  await expect(page.locator("#panel .alert")).toContainText(/box/i);
+  await expect(page.locator("#panel .results a[download]")).toHaveCount(0);
+});

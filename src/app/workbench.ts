@@ -1,6 +1,6 @@
 import type { Control, Tool } from "../data/tools";
 import type { In, Out } from "../engine/core";
-import { cancelJobs, openPdf, renderPage, runTool, stash, unstash } from "./client";
+import { cancelJobs, clearStash, openPdf, renderPage, runTool, stash, unstash } from "./client";
 import { addBox, announcer, cropEditor, el, formFields, pageMarkup, pagesEditor, regionSurface, signaturePanel, type Box, type Rect } from "./editors";
 
 const bench = document.querySelector<HTMLElement>("#bench"), stage = document.querySelector<HTMLElement>("#stage"), panel = document.querySelector<HTMLElement>("#panel");
@@ -86,6 +86,10 @@ const results = el("div", { className: "results" });
 const consent = tool.model ? el("div", { className: "consent" }, el("span", { textContent: `This tool runs ${tool.model.name} on your device. The first use downloads about ${tool.model.size}. Your file is not sent anywhere.` })) : null;
 panel.append(live, extra, controlsHost);
 announcer.say = (m) => say(m);
+// Present from the start, so the panel does not shift under the pointer when the image finishes opening.
+const addRegion = el("button", { className: "btn alt small addmark", type: "button", textContent: "Add box", disabled: true });
+addRegion.onclick = () => { const b: Box = { page: 0, x: 0.3, y: 0.42, w: 0.4, h: 0.16 }; boxes.push(b); const n = addBox(frame, b, boxes, syncMarks); syncMarks(); n.focus(); };
+if (tool.editor === "regions" && tool.kind === "image") extra.append(addRegion);
 const ranges = shown.filter((c) => c.type === "range");
 if (ranges.length >= 4) {
   const reset = el("button", { className: "btn alt small", type: "button", textContent: "Reset all" });
@@ -208,7 +212,8 @@ function resetTool() {
   resetOutput(); boxes.length = 0; signature = null; syncMarks();
   stage.replaceChildren(...emptyStage); view = tray = frame = before = after = null;
   pagesApi = null; pagesFiles = 0; pagesIds = [];
-  extra.replaceChildren(); clearMsg(); setNotice(""); go.disabled = true;
+  if (tool.editor !== "regions") extra.replaceChildren();
+  addRegion.disabled = true; clearMsg(); setNotice(""); go.disabled = true;
 }
 function editorFailed(e: any) {
   const m = e?.name === "PasswordException" ? "This file is password protected. Unlock it first with Unlock PDF." : "This PDF is damaged or incomplete, so it cannot be edited here. Try Repair PDF.";
@@ -252,7 +257,7 @@ async function showPdf(f: In | Out, blob?: Blob) {
   const grid = el("div", { className: "pages" }); view.append(grid);
   try {
     const doc = await openPdf((f as In).id ?? `out-${Date.now()}`, blob ?? (f as In).blob), n = Math.min(doc.numPages, 60);
-    const io = new IntersectionObserver((es) => es.forEach(async (e) => { if (!e.isIntersecting) return; io.unobserve(e.target); const t = e.target as HTMLElement, pg = await doc.getPage(+t.dataset.i + 1), k = (124 * Math.min(devicePixelRatio, 2)) / pg.getViewport({ scale: 1 }).width, c = await renderPage(doc, +t.dataset.i, k); c.style.width = "124px"; t.style.aspectRatio = ""; t.prepend(c); }), { root: view, rootMargin: "300px" });
+    const io = new IntersectionObserver((es) => es.forEach(async (e) => { if (!e.isIntersecting) return; io.unobserve(e.target); const t = e.target as HTMLElement; try { const pg = await doc.getPage(+t.dataset.i + 1), k = (124 * Math.min(devicePixelRatio, 2)) / pg.getViewport({ scale: 1 }).width, c = await renderPage(doc, +t.dataset.i, k); c.style.width = "124px"; t.style.aspectRatio = ""; t.prepend(c); } catch { /* The document was closed because another one replaced it. */ } }), { root: view, rootMargin: "300px" });
     const vp = (await doc.getPage(1)).getViewport({ scale: 1 });
     for (let i = 0; i < n; i++) { const s = el("div", { className: "sheet", "data-i": i }); s.style.width = "124px"; s.style.aspectRatio = `${vp.width} / ${vp.height}`; grid.append(el("div", { className: "pg" }, s, el("span", { textContent: String(i + 1) }))); io.observe(s); }
     if (doc.numPages > n) grid.append(el("p", { textContent: `and ${doc.numPages - n} more pages` }));
@@ -279,7 +284,8 @@ async function showImage(f: In) {
     const label = el("span", { className: "tag l" }); frame.append(label);
     cropApi = cropEditor(frame, () => (params.aspect && params.aspect !== "free" ? +params.aspect : null), { w: t.width, h: t.height }, (r: Rect) => { params.crop = r; label.textContent = `${Math.round(r.w * t.width)} × ${Math.round(r.h * t.height)}${t.width >= 1400 || t.height >= 1400 ? " (preview scale)" : ""}`; });
   } else if (tool.editor === "regions") {
-    frame.style.cursor = "crosshair"; frame.style.touchAction = "none"; regionSurface(frame, 0, boxes, syncMarks); boxes.forEach((b) => addBox(frame, b, boxes, syncMarks)); hint("Drag on the image to mark what to hide.");
+    frame.style.cursor = "crosshair"; frame.style.touchAction = "none"; regionSurface(frame, 0, boxes, syncMarks, true); boxes.forEach((b) => addBox(frame, b, boxes, syncMarks)); hint("Drag on the image, or use Add box, to mark what to hide.");
+    addRegion.disabled = false;
   } else if (tool.live) schedulePreview(true);
 }
 
@@ -353,14 +359,15 @@ function showSwatches(o: Out) {
 async function signSetup(f: In) {
   extra.replaceChildren();
   extra.append(el("p", { className: "lab", textContent: "This places an image of your signature. It is not a certified digital signature." }));
-  signaturePanel(extra, (s) => {
+  const pad = signaturePanel(extra, (s) => {
     // An earlier version of the signature is released unless a placed mark still shows it.
     if (signature && signature.url !== s?.url && !boxes.some((b) => b.url === signature.url)) URL.revokeObjectURL(signature.url);
     signature = s; go.disabled = busy || !ready();
     if (s) { clearMsg(); hint("Click or tap a page, or use Place signature, to put it on the page."); if (matchMedia("(max-width: 940px)").matches) view.scrollIntoView({ block: "start" }); }
   });
   go.disabled = !ready();
-  const place = (page: number, surface: HTMLElement, cx = 0.5, cy = 0.5) => {
+  const place = async (page: number, surface: HTMLElement, cx = 0.5, cy = 0.5) => {
+    await pad.settled();
     if (!signature) { clearMsg(); msg.className = "ok"; msg.textContent = "Draw or type your signature first."; say(msg.textContent); return; }
     const r = surface.getBoundingClientRect(), w = 0.3, h = (w * r.width) / signature.ratio / r.height;
     const b: Box = { page, w, h, x: Math.max(0, Math.min(1 - w, cx - w / 2)), y: Math.max(0, Math.min(1 - h, cy - h / 2)), png: signature.png, url: signature.url };
@@ -442,7 +449,11 @@ function drawResults(ms: number) {
   const handable = outs.filter((o) => o.bytes && (o.type === "application/pdf" || o.type.startsWith("image/")));
   if (handable.length) {
     const kind = handable[0].type === "application/pdf" ? "application/pdf" : "image", ids = NEXT[kind].filter((x) => x !== tool.id && x !== engineId).slice(0, 3);
-    const chips = ids.map((id) => { const b = el("button", { className: "chip", type: "button", textContent: id.replace(/-/g, " ").replace(/\bpdf\b/, "PDF").replace(/^./, (c) => c.toUpperCase()) }); b.onclick = async () => { await stash(handable.map((o) => new File([o.bytes as BlobPart], o.name, { type: o.type }))); location.href = `/${id}?with=files`; }; return b; });
+    const chips = ids.map((id) => { const b = el("button", { className: "chip", type: "button", textContent: id.replace(/-/g, " ").replace(/\bpdf\b/, "PDF").replace(/^./, (c) => c.toUpperCase()) }); b.onclick = async () => {
+      try { await stash(handable.map((o) => new File([o.bytes as BlobPart], o.name, { type: o.type }))); }
+      catch { clearStash().catch(() => {}); setNotice("Your browser storage is full, so this result could not be passed on. Download it, then open the next tool."); return; }
+      location.href = `/${id}?with=files`;
+    }; return b; });
     results.append(el("div", { className: "field" }, el("span", { className: "lab", textContent: "Keep going with this result" }), el("div", { className: "chips" }, ...chips)));
   }
 }

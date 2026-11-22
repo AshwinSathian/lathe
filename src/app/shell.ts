@@ -3,7 +3,7 @@ import { clearStash, stash } from "./client";
 const $ = <T extends Element = HTMLElement>(s: string) => document.querySelector<T>(s);
 type Entry = { id: string; name: string; kind: string; group: string; blurb: string; accepts: string };
 let index: Promise<Entry[]>;
-const list = () => (index ??= fetch("/tools.json").then((r) => r.json()));
+const list = () => (index ??= fetch("/tools.json").then((r) => r.json()).catch((e) => { index = undefined; throw e; }));
 
 // A file handed between tools is stored only for the navigation. Anything left from an interrupted one is removed here.
 if (!new URLSearchParams(location.search).has("with")) clearStash().catch(() => { /* Storage may be unavailable, and then nothing was stored. */ });
@@ -29,7 +29,7 @@ const draw = () => {
   ul.querySelector("[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
 };
 const search = async () => {
-  const q = input.value.trim().toLowerCase(), all = await list();
+  const q = input.value.trim().toLowerCase(), all = await list().catch(() => [] as Entry[]);
   hits = q ? all.map((t) => [t, score(t, q)] as const).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]).slice(0, 30).map((x) => x[0]) : all.slice(0, 12);
   sel = 0; draw();
 };
@@ -58,7 +58,11 @@ if (spindle) {
     if (pdfs && pdfs !== files.length) { const pics = files.filter((f) => !isPdf(f)); files = pics; }
     const all = await list(), box = $("#route");
     box.querySelector("h2").textContent = files.length === 1 ? `What should happen to ${files[0].name}?` : `What should happen to these ${files.length} files?`;
-    box.querySelector(".chips").replaceChildren(...ids.map((id) => { const a = document.createElement("a"), t = all.find((x) => x.id === id); a.className = "chip"; a.href = `/${id}?with=files`; a.textContent = t.name; a.onclick = async (e) => { e.preventDefault(); await stash(files); location.href = a.href; }; return a; }));
+    box.querySelector(".chips").replaceChildren(...ids.map((id) => { const a = document.createElement("a"), t = all.find((x) => x.id === id); a.className = "chip"; a.href = `/${id}?with=files`; a.textContent = t.name; a.onclick = async (e) => {
+      e.preventDefault();
+      try { await stash(files); location.href = a.href; }
+      catch { clearStash().catch(() => {}); box.querySelector(".stash-full")?.remove(); const m = document.createElement("p"); m.className = "alert stash-full"; m.role = "alert"; m.textContent = "Your browser storage is full. Open the tool first, then add your file there."; box.append(m); }
+    }; return a; }));
     box.classList.add("on"); box.scrollIntoView({ block: "nearest", behavior: "smooth" });
     spin = 1;
   };

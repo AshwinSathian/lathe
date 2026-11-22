@@ -188,7 +188,7 @@ export const imageTools: Record<string, Run> = {
     const out = await save(await hide(img, grown, p.style, p.strength), f, p, ctx, "-faces");
     return { ...out, note: boxes.length ? `Hid ${boxes.length} face${boxes.length === 1 ? "" : "s"}. Check the result before sharing.` : "No faces found. Check the photo yourself before sharing it, or try a lower detection confidence." };
   }),
-  "censor-image": edit(async (img, p) => hide(img, (p.regions ?? []).map((r: any) => ({ x: r.x * img.width, y: r.y * img.height, w: r.w * img.width, h: r.h * img.height })), p.style, p.strength), "-hidden"),
+  "censor-image": edit(async (img, p, ctx) => { if (!p.regions?.length && !ctx.preview) throw new Say("Mark at least one box over what you want to hide."); return hide(img, (p.regions ?? []).map((r: any) => ({ x: r.x * img.width, y: r.y * img.height, w: r.w * img.width, h: r.h * img.height })), p.style, p.strength); }, "-hidden"),
 
   "resize-image": edit(async (img, p, ctx) => {
     const W = img.width, H = img.height, full = ctx.preview ? 1 : 1;

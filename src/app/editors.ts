@@ -75,7 +75,7 @@ function addBox(surface: HTMLElement, b: Box, all: Box[], changed: () => void) {
   if (b.url) n.append(el("img", { src: b.url, alt: "" }));
   const remove = () => {
     all.splice(all.indexOf(b), 1); n.remove(); changed();
-    (surface.querySelector<HTMLElement>(".box") ?? surface.previousElementSibling?.querySelector<HTMLElement>(".addmark"))?.focus();
+    (surface.querySelector<HTMLElement>(".box") ?? surface.previousElementSibling?.querySelector<HTMLElement>(".addmark") ?? document.querySelector<HTMLElement>("#panel .addmark"))?.focus();
   };
   const del = el("button", { className: "del", type: "button", "aria-label": "Remove", textContent: "×" }); del.onclick = (e) => { e.stopPropagation(); remove(); };
   const grip = el("div", { className: "grip" });
@@ -101,11 +101,11 @@ function addBox(surface: HTMLElement, b: Box, all: Box[], changed: () => void) {
 }
 
 /** Draw boxes on a surface. Used for redaction and for hiding parts of an image. */
-export function regionSurface(surface: HTMLElement, page: number, all: Box[], changed: () => void) {
+export function regionSurface(surface: HTMLElement, page: number, all: Box[], changed: () => void, touchDraws = false) {
   surface.addEventListener("pointerdown", (e) => {
     if (e.target !== surface && (e.target as HTMLElement).tagName !== "CANVAS") return;
-    // A finger scrolls the document. On touch, marks come from the Add box button and are then dragged into place.
-    if (e.pointerType === "touch") return;
+    // On a scrolling document a finger scrolls, and marks come from the Add box button. An image does not scroll, so touch draws.
+    if (e.pointerType === "touch" && !touchDraws) return;
     e.preventDefault(); surface.setPointerCapture(e.pointerId);
     const r = surface.getBoundingClientRect(), x0 = clamp((e.clientX - r.left) / r.width, 0, 1), y0 = clamp((e.clientY - r.top) / r.height, 0, 1), b: Box = { page, x: x0, y: y0, w: 0.002, h: 0.002 };
     all.push(b);
@@ -119,7 +119,10 @@ export function regionSurface(surface: HTMLElement, page: number, all: Box[], ch
 async function lazyPages(host: HTMLElement, f: In, width: number, build: (i: number, sheet: HTMLElement, c: HTMLCanvasElement | null) => void) {
   const doc = await openPdf(f.id, f.blob), io = new IntersectionObserver((es) => es.forEach(async (e) => {
     if (!e.isIntersecting) return; io.unobserve(e.target);
-    const el = e.target as HTMLElement, i = +el.dataset.i, pg = await doc.getPage(i + 1), base = pg.getViewport({ scale: 1 }), k = (width * Math.min(devicePixelRatio, 2)) / base.width, c = await renderPage(doc, i, k);
+    const el = e.target as HTMLElement, i = +el.dataset.i;
+    let c: HTMLCanvasElement;
+    try { const pg = await doc.getPage(i + 1), base = pg.getViewport({ scale: 1 }), k = (width * Math.min(devicePixelRatio, 2)) / base.width; c = await renderPage(doc, i, k); }
+    catch { return; } // The document was closed because another one replaced it.
     c.style.width = `${width}px`; c.style.maxWidth = "100%"; c.style.height = "auto"; el.style.minHeight = ""; el.style.aspectRatio = ""; el.prepend(c);
   }), { root: host.closest(".view"), rootMargin: "400px" });
   const first = await doc.getPage(1), vp = first.getViewport({ scale: 1 });
@@ -192,7 +195,10 @@ export type { Box };
 export function signaturePanel(host: HTMLElement, onReady: (s: { png: Uint8Array; url: string; ratio: number } | null) => void) {
   const body = el("div", { className: "field" }), seg = el("div", { className: "seg", role: "group", "aria-label": "Signature type" });
   let mode = "draw", pad: HTMLCanvasElement, typed: HTMLInputElement;
-  const finish = async (c: HTMLCanvasElement) => {
+  // Encoding is asynchronous, so placing a signature waits for the latest stroke or keystroke.
+  let latest: Promise<void> = Promise.resolve();
+  const finish = (c: HTMLCanvasElement) => (latest = encodeSignature(c));
+  const encodeSignature = async (c: HTMLCanvasElement) => {
     const g = c.getContext("2d", { willReadFrequently: true }), d = g.getImageData(0, 0, c.width, c.height).data; let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
     for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] > 8) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
     if (x1 < 0) return onReady(null);
@@ -234,6 +240,7 @@ export function signaturePanel(host: HTMLElement, onReady: (s: { png: Uint8Array
   };
   for (const [m, l] of [["draw", "Draw"], ["type", "Type"], ["upload", "Upload"]]) { const b = el("button", { type: "button", textContent: l, "data-m": m }); b.onclick = () => { mode = m; show(); }; seg.append(b); }
   host.append(seg, body); show();
+  return { settled: () => latest };
 }
 
 export async function formFields(host: HTMLElement, f: In, values: Record<string, unknown>) {

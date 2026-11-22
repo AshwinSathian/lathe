@@ -48,3 +48,54 @@ test("updates replace engines and keep only two caches", async ({ page, browserN
     }
   } finally { server.close(); }
 });
+
+const ready = async (page: import("@playwright/test").Page) => { await page.goto("/compress-image"); await page.evaluate(async () => { await navigator.serviceWorker.register("/sw.js"); await navigator.serviceWorker.ready; }); await page.reload(); await page.waitForFunction(() => navigator.serviceWorker.controller?.state === "activated"); };
+test("an unvisited tool offline says what to do", async ({ page, context, browserName }) => {
+  test.skip(browserName !== "chromium", "Service worker offline control is reliable in Chromium");
+  await ready(page); await page.waitForTimeout(300);
+  await context.setOffline(true);
+  await page.goto("/merge-pdf");
+  await expect(page.locator("body")).toContainText(/offline/i);
+  await expect(page.locator("h1")).not.toContainText("Work on your files");
+  await context.setOffline(false);
+});
+test("a missing file offline is an error, not the home page", async ({ page, context, browserName }) => {
+  test.skip(browserName !== "chromium", "Service worker offline control is reliable in Chromium");
+  await ready(page);
+  await context.setOffline(true);
+  const out = await page.evaluate(() => fetch("/not-cached.json").then((r) => r.headers.get("content-type") ?? "", () => "failed"));
+  expect(out).not.toContain("text/html");
+  await context.setOffline(false);
+});
+test("the tool finder still works offline", async ({ page, context, browserName }) => {
+  test.skip(browserName !== "chromium", "Service worker offline control is reliable in Chromium");
+  await ready(page); await page.waitForTimeout(300);
+  await context.setOffline(true);
+  await page.reload();
+  await page.locator("[data-palette]").first().click();
+  await page.locator("dialog input").fill("merge");
+  await expect(page.locator("dialog [role=option]").first()).toContainText("Merge");
+  await context.setOffline(false);
+});
+test("a tool whose engine is not saved explains that when offline", async ({ page, context, browserName }) => {
+  test.skip(browserName !== "chromium", "Service worker offline control is reliable in Chromium");
+  await ready(page);
+  await context.setOffline(true);
+  await page.locator("#stage input[type=file]").first().setInputFiles("tests/fixtures/photo.jpg");
+  await expect(page.locator("#stage .view")).toContainText(/offline/i, { timeout: 15_000 });
+  await context.setOffline(false);
+});
+test("opening many PDFs does not pile up workers", async ({ page }) => {
+  await page.goto("/rotate-pdf");
+  for (let i = 0; i < 14; i++) { await page.locator("#stage input[type=file]").first().setInputFiles({ name: `f${i}.pdf`, mimeType: "application/pdf", buffer: readFileSync("tests/fixtures/b.pdf") }); await expect(page.locator(".tray .fname").last()).toHaveText(`f${i}.pdf`); await page.waitForTimeout(60); }
+  await expect.poll(() => page.workers().length, { timeout: 8_000 }).toBeLessThanOrEqual(10);
+});
+test("a full browser store explains how to continue", async ({ page }) => {
+  await page.addInitScript(() => { IDBObjectStore.prototype.put = function () { throw new DOMException("full", "QuotaExceededError"); }; });
+  await page.goto("/compress-image");
+  await page.locator("#stage input[type=file]").first().setInputFiles("tests/fixtures/photo.jpg");
+  const go = page.locator("#panel > .btn").first(); await expect(go).toBeEnabled(); await go.click();
+  await page.locator("#panel .chips button", { hasText: "Resize" }).click();
+  await expect(page.locator("#panel .notice")).toContainText(/download/i);
+  await expect(page).toHaveURL(/compress-image/);
+});

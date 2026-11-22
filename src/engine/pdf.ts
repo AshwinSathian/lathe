@@ -156,6 +156,7 @@ async function asImages(bytes: Uint8Array, ctx: Ctx, dpi = 200) {
     const b = await render(ctx, bytes, key, i, dpi), v = visual(src.getPage(i)), im = await d.embedJpg(await encode(toImg(b), "jpeg", 90));
     b.close(); d.addPage([v.W, v.H]).drawImage(im, { x: 0, y: 0, width: v.W, height: v.H });
   }
+  await ctx.main("closeDoc", { key, size: bytes.length });
   return saved(d);
 }
 /** Saves a page-removal result. With `secure`, a result that reuses removed content is rebuilt from pixels. */

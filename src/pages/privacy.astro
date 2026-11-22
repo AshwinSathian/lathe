@@ -10,7 +10,7 @@ import Base from "../layouts/Base.astro";
     <h2>What your browser downloads</h2>
     <p>The page, its engines and the OCR language data come from this site. Remove background and Upscale image also need a large model, and Lathe asks before fetching it: the model comes from Hugging Face and its runtime from jsDelivr, and each file is checked against a pinned hash. Those services can see your IP address, as with any download, but they receive nothing from your files.</p>
     <h2>What is stored</h2>
-    <p>Your browser caches the app and any models so they work offline. Tool settings are kept in local storage, except passwords, which are never saved. When you move a file from one tool to another it is held briefly in the browser's own database and deleted as soon as the next tool opens it.</p>
+    <p>Your browser caches each tool as you use it, along with any models, so tools you have used work offline. Tool settings are kept in local storage, except passwords, which are never saved. When you move a file from one tool to another it is held briefly in the browser's own database and deleted as soon as the next tool opens it.</p>
     <h2>Check it yourself</h2>
     <p>Open your browser's developer tools, select the Network tab and run any tool. You will see no request carrying your file. A strict Content Security Policy also limits which addresses this page can contact at all.</p>
     <h2>Limits worth knowing</h2>

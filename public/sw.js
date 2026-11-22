@@ -1,7 +1,8 @@
 // Offline support. Hashed assets are cache-first; pages try the network, then the last copy seen.
 // The build replaces this name, so a release never reuses another release's engines.
 const CACHE = "lathe-dev";
-self.addEventListener("install", (e) => e.waitUntil(self.skipWaiting()));
+// The offline notice and the tool list are saved up front. Everything else is saved as it is used.
+self.addEventListener("install", (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/offline", "/tools.json"])).catch(() => {}).then(() => self.skipWaiting())));
 // The previous release's cache stays, so a tab left open can still load its own chunks.
 self.addEventListener("activate", (e) => e.waitUntil(caches.keys().then((k) => {
   // Downloaded models live in their own cache and survive releases.
@@ -17,5 +18,8 @@ self.addEventListener("fetch", (e) => {
   // Hashed names never change, so any cache may answer. Vendor names are reused, so only this release's cache may.
   if (url.pathname.startsWith("/_astro/")) e.respondWith(caches.match(e.request).then((hit) => hit ?? fetch(e.request).then(keep)));
   else if (url.pathname.startsWith("/vendor/")) e.respondWith(caches.open(CACHE).then((c) => c.match(e.request)).then((hit) => hit ?? fetch(e.request, { cache: "no-cache" }).then(keep)));
-  else e.respondWith(fetch(e.request).then(keep).catch(() => caches.open(CACHE).then((c) => c.match(e.request).then((hit) => hit ?? c.match("/")))));
+  else e.respondWith(fetch(e.request).then(keep).catch(async () => {
+    const c = await caches.open(CACHE), page = e.request.mode === "navigate", hit = await c.match(e.request, { ignoreSearch: page });
+    return hit ?? (page && (await c.match("/offline"))) ?? Response.error();
+  }));
 });
