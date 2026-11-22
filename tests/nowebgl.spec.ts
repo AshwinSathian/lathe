@@ -4,6 +4,7 @@ import sharp from "sharp";
 
 async function edit(browser: Browser, baseURL: string) {
   const page = await browser.newPage({ baseURL });
+  await page.addInitScript(() => { (window as any).__latheTest = true; });
   await page.goto("/adjust-image");
   const gl = await page.evaluate(() => !!new OffscreenCanvas(1, 1).getContext("webgl2"));
   await page.locator("#stage input[type=file]").first().setInputFiles("tests/fixtures/photo.png");

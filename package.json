@@ -39,7 +39,7 @@
     "vendor": "node scripts/vendor.mjs",
     "check": "npm run check:ts && astro check",
     "deploy": "npm run check && npm run build && playwright test && wrangler deploy",
-    "smoke": "LATHE_URL=https://lathe.ashwinsathian.com playwright test tests/tools.spec.ts tests/interaction.spec.ts tests/live.spec.ts",
+    "smoke": "LATHE_URL=https://lathe.ashwinsathian.com playwright test tests/tools.spec.ts tests/interaction.spec.ts tests/live.spec.ts tests/security.spec.ts tests/adversarial.spec.ts tests/production.spec.ts",
     "docs": "node scripts/gen-docs.mjs",
     "check:docs": "node scripts/gen-docs.mjs --check",
     "media": "node scripts/media.mjs",

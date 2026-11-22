@@ -1,5 +1,5 @@
 // Runs background removal on a real GPU when the machine has one. Enable with LATHE_GPU=1.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixture";
 import sharp from "sharp";
 test.use({ launchOptions: { args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan,WebGPU", "--use-angle=metal", "--ignore-gpu-blocklist"] } });
 test("background removal on WebGPU", async ({ page, browserName }) => {

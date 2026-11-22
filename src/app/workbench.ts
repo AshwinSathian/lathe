@@ -340,5 +340,6 @@ if (new URLSearchParams(location.search).has("with")) {
   history.replaceState(null, "", location.pathname);
   unstash().then((f) => f.length && addFiles(f)).catch(() => { /* Nothing was handed over. */ });
 }
-(window as any).__lathe = { addFiles, get outs() { return outs; }, params, get busy() { return busy; } };
+// The test suite sets this flag before the page loads. Normal visits never expose settings or output.
+if ((window as any).__latheTest) (window as any).__lathe = { addFiles, get outs() { return outs; }, params, get busy() { return busy; } };
 

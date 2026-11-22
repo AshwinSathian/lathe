@@ -1,5 +1,5 @@
 // These run the real models, so they need the network and take minutes on first run.
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixture";
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
 import { unzipSync } from "fflate";

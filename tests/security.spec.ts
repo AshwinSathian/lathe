@@ -1,5 +1,5 @@
 // Regression tests for ways a privacy tool can quietly keep what it promised to remove.
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixture";
 import { PDFDict, PDFDocument, PDFName, PDFOperator, PDFString, StandardFonts } from "pdf-lib";
 import { inflateSync } from "node:zlib";
 import sharp from "sharp";

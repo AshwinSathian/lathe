@@ -1,5 +1,5 @@
 // HEIC export is checked by an independent decoder (macOS ImageIO through sips), not by Lathe's own reader.
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixture";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

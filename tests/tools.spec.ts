@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixture";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { unzipSync } from "fflate";
 import { tools } from "../src/data/tools";

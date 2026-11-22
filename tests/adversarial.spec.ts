@@ -1,5 +1,5 @@
 // Realistic documents that page-removal tools must not break or leak from.
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixture";
 import { PDFDict, PDFDocument, PDFName, PDFRef, StandardFonts } from "pdf-lib";
 import sharp from "sharp";
 

@@ -1,5 +1,5 @@
 // Real pointer input and accessibility, the parts the tool tests set directly.
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixture";
 import AxeBuilder from "@axe-core/playwright";
 import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";

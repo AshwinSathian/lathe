@@ -11,7 +11,7 @@ v1.0.0 ships only when every check is true.
 2. All 82 tools complete a run under network capture, with real inference for each AI engine. Every cross-origin request matches an exact allowlist of pinned URLs, and none carries a body.
 3. `script-src` contains no third-party origin. `connect-src` allows third parties only on AI routes, in `_headers` and nginx. Every third-party download is verified by SHA-256 or self-hosted, including when read back from cache (poisoned-cache test).
 4. After using each tool, no file data, password, signature or typed text remains in `localStorage`, IndexedDB or Cache Storage. A tab killed mid-handoff leaves no plaintext.
-5. `window.__lathe` is undefined in production. A hook-free production spec drives one tool per engine through real upload, click and download.
+5. `window.__lathe` is undefined for every visitor. It exists only when the test harness sets a flag before page load, so the full suite can still run against production. A hook-free spec drives one tool per engine through real upload, click and download.
 
 **Output integrity**
 6. B7, B11 to B17, B21 and M6 to M13 each have a fixture test that opens the output in two independent readers.
@@ -27,7 +27,7 @@ v1.0.0 ships only when every check is true.
 **Release**
 13. Every claim in the README, site and docs traces to a test or a measurement, or is removed.
 14. All four CodeQL alerts are fixed or dismissed with recorded evidence.
-15. All ship gates pass and CI is green. The hook suite passes on a test build, and the hook-free spec and header checks pass against production.
+15. All ship gates pass and CI is green. The full suite passes against production.
 16. Measured limits are published.
 
 ## Slices, blockers first
@@ -36,7 +36,7 @@ Each slice ends with a failing test turned green, docs and CHANGELOG updated, an
 
 | # | Slice | Items | Root-cause change |
 |---|---|---|---|
-| 1 | Test seam | m1, m23 | Test build keeps the hook. Hook-free production spec. `smoke` covers security specs |
+| 1 | Test seam | m1, m23 | Hook needs a flag set before load. Hook-free production spec. `smoke` covers security specs |
 | 2 | Service worker first | M19 | Versioned cache, stale engines removed, so later patches reach returning users |
 | 3 | One editing session | B5, B6, B8, B18, M14, M15, M16, M21, M22, M28 | Marks and results belong to a session keyed to the file. Run token and Cancel |
 | 4 | Batch results | B7 | Shared `each` returns successes plus named failures |
