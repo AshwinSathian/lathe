@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFHexString, PDFContentStream, decodePDFRawStream, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFObject, type PDFPage } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFString, PDFHexString, PDFContentStream, decodePDFRawStream, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFObject, type PDFPage } from "pdf-lib";
 import { unzlibSync } from "fflate";
 import { Say, bytesOf, eachFile as each, pagesIn, parseRanges, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
 import { EXT, MIME, encode, load as loadImage, sniff } from "./codecs";
@@ -8,10 +8,17 @@ const PDF_T = "application/pdf";
 const SIZES: Record<string, [number, number]> = { a3: [841.89, 1190.55], a4: [595.28, 841.89], a5: [419.53, 595.28], letter: [612, 792], legal: [612, 1008] };
 const color = (hex: string) => { const n = parseInt(hex.slice(1), 16); return rgb((n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255); };
 const out = (name: string, bytes: Uint8Array, note?: string): Out => ({ name, type: PDF_T, bytes, note });
-const saved = (d: PDFDocument) => d.save({ useObjectStreams: true });
+/** Writes only what the document still references, so text replaced in an earlier revision cannot ride along. */
+const saved = async (d: PDFDocument, o: { updateFieldAppearances?: boolean } = {}) => { await d.flush(); collectGarbage(d); return d.save({ useObjectStreams: true, ...o }); };
 
-/** Runs the qpdf command line in a fresh WebAssembly instance. */
-async function qpdf(input: Uint8Array, args: (i: string, o: string) => string[]) {
+/** Runs the qpdf command line in a fresh WebAssembly instance, one at a time because it borrows the global console. */
+let qpdfTurn: Promise<unknown> = Promise.resolve();
+function qpdf(input: Uint8Array, args: (i: string, o: string) => string[]) {
+  const run = qpdfTurn.then(() => qpdfOnce(input, args));
+  qpdfTurn = run.catch(() => {});
+  return run;
+}
+async function qpdfOnce(input: Uint8Array, args: (i: string, o: string) => string[]) {
   const { default: create } = await import("@neslinesli93/qpdf-wasm");
   const log: string[] = [], { log: l, error: er } = console;
   // This qpdf build binds console when it is created, so its messages can only be read by standing in for console.
@@ -25,23 +32,35 @@ async function qpdf(input: Uint8Array, args: (i: string, o: string) => string[])
   const text = log.join("\n");
   if (/invalid password/i.test(text)) throw new Say("That password is not correct for this PDF.");
   if (code !== 0 && code !== 3) throw new Say(`This PDF could not be processed: ${text.split("\n").pop() || "it may be badly damaged"}.`);
-  return { bytes: m.FS.readFile("/out.pdf") as Uint8Array, log: text };
+  return { bytes: m.FS.readFile("/out.pdf") as Uint8Array, log: text, warned: code === 3 };
 }
 
 const looksEncrypted = (b: Uint8Array) => { const tail = new TextDecoder("latin1").decode(b.subarray(Math.max(0, b.length - 4096))); return /\/Encrypt\b/.test(tail) || new TextDecoder("latin1").decode(b).includes("/Encrypt"); };
 
+/** What a tool must tell the user about this input, recorded as each file is opened. */
+const traits = new WeakMap<In, { signed: boolean; xfa: boolean; rich: string[]; restricted: boolean }>();
+function readTraits(doc: PDFDocument, restricted: boolean) {
+  const form = doc.catalog.lookup(PDFName.of("AcroForm")), names = doc.catalog.lookup(PDFName.of("Names")), fields = form instanceof PDFDict ? form.lookup(PDFName.of("Fields")) : null;
+  const rich = [fields instanceof PDFArray && fields.size() ? "form fields" : "", names instanceof PDFDict && names.has(PDFName.of("EmbeddedFiles")) ? "attachments" : "", doc.catalog.has(PDFName.of("Outlines")) ? "bookmarks" : ""].filter(Boolean);
+  const signed = doc.context.enumerateIndirectObjects().some(([, o]) => o instanceof PDFDict && o.has(PDFName.of("ByteRange")));
+  return { signed, xfa: form instanceof PDFDict && form.has(PDFName.of("XFA")), rich, restricted };
+}
+const refuseXfa = (f: In) => { if (traits.get(f)?.xfa) throw new Say(`${f.name} is an XFA form, which Lathe cannot edit. Changing it here would delete the form.`); };
+
 async function open(f: In, p: any = {}): Promise<{ doc: PDFDocument; bytes: Uint8Array }> {
+  const loaded = (doc: PDFDocument, bytes: Uint8Array) => { traits.set(f, readTraits(doc, restricted)); return { doc, bytes }; };
+  let restricted = false;
   let bytes: Uint8Array = await bytesOf(f);
   if (sniff(bytes) !== "pdf" && !new TextDecoder("latin1").decode(bytes.subarray(0, 1024)).includes("%PDF")) throw new Say(`${f.name} is not a PDF.`);
   if (looksEncrypted(bytes)) {
-    try { bytes = (await qpdf(bytes, (i, o) => [`--password=${p.password ?? ""}`, "--decrypt", i, o])).bytes; }
+    try { bytes = (await qpdf(bytes, (i, o) => [`--password=${p.password ?? ""}`, "--decrypt", i, o])).bytes; restricted = !p.password; }
     catch (e) { if (e instanceof Say && /password/.test(e.message)) throw new Say(`${f.name} is password protected. Open it with Unlock PDF first.`); throw e; }
   }
-  try { return { doc: await PDFDocument.load(bytes, { updateMetadata: false }), bytes }; }
+  try { return loaded(await PDFDocument.load(bytes, { updateMetadata: false }), bytes); }
   catch {
     // A damaged file often loads once qpdf has rebuilt it.
     const fixed = (await qpdf(bytes, (i, o) => [i, o])).bytes;
-    return { doc: await PDFDocument.load(fixed, { updateMetadata: false }), bytes: fixed };
+    return loaded(await PDFDocument.load(fixed, { updateMetadata: false }), fixed);
   }
 }
 
@@ -129,7 +148,23 @@ async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[], track =
   } finally { undo.reverse().forEach((f) => f()); }
 }
 const copy = async (src: PDFDocument, idx: number[], track = false) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx, track)).forEach((x) => d.addPage(x)); return d; };
-const reuseNote = (d: PDFDocument) => (reusesRemoved.has(d) ? " A kept page reuses content from a removed page, such as a logo. To guarantee removal, use Redact PDF." : "");
+let imageRun = 0;
+/** Rebuilds every page from pixels, so nothing the pages merely reference can remain. */
+async function asImages(bytes: Uint8Array, ctx: Ctx, dpi = 200) {
+  const src = await PDFDocument.load(bytes), d = await PDFDocument.create(), key = `images-${++imageRun}`;
+  for (let i = 0; i < src.getPageCount(); i++) {
+    ctx.progress(i / src.getPageCount(), `Rebuilding page ${i + 1}`);
+    const b = await render(ctx, bytes, key, i, dpi), v = visual(src.getPage(i)), im = await d.embedJpg(await encode(toImg(b), "jpeg", 90));
+    b.close(); d.addPage([v.W, v.H]).drawImage(im, { x: 0, y: 0, width: v.W, height: v.H });
+  }
+  return saved(d);
+}
+/** Saves a page-removal result. With `secure`, a result that reuses removed content is rebuilt from pixels. */
+async function finishRemoval(d: PDFDocument, p: any, ctx: Ctx) {
+  const reused = reusesRemoved.has(d), bytes = await saved(d);
+  if (reused && p.secure) return { bytes: await asImages(bytes, ctx), note: " Pages were rebuilt as images, so nothing from the removed pages remains.", reused: false };
+  return { bytes, note: reused ? " A kept page reuses content from a removed page, such as a logo. Use Remove securely to rebuild the pages as images, or Redact PDF to black out what remains." : "", reused };
+}
 /** The real page tree, walked down from the catalog through /Kids, so a forged /Parent or /Type cannot add to it. */
 function pageTree(doc: PDFDocument) {
   const leaves = new Set<unknown>(doc.getPages().map((x) => x.ref)), nodes = new Set<unknown>(), stack: unknown[] = [doc.catalog.get(PDFName.of("Pages"))];
@@ -198,7 +233,8 @@ function pageStreams(doc: PDFDocument, page: PDFPage, tree: PageTree, shown: boo
       const o = doc.context.lookup(v);
       // A tree node can hold inherited resources, so only its links to other pages are skipped.
       if (tree.nodes.has(v)) { stack.push(...(o as PDFDict).entries().filter(([k]) => k !== parent && k !== kids).map(([, x]) => x)); continue; }
-      if (o instanceof PDFStream) found.add(v);
+      // Annotations and their text can be shared by reference, and then show on every page that lists them.
+      if (o instanceof PDFStream || o instanceof PDFString || o instanceof PDFHexString || (o instanceof PDFDict && o.has(PDFName.of("Subtype")) && o.has(PDFName.of("Rect")))) found.add(v);
       stack.push(o);
     } else if (v instanceof PDFArray) stack.push(...v.asArray());
     else if (v instanceof PDFStream) entries(v.dict);
@@ -427,7 +463,35 @@ function textFromItems(items: { str: string; x: number; y: number; h: number; w:
   return o.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
-export const pdfTools: Record<string, Run> = {
+const DROPS_STRUCTURE = new Set(["merge-pdf", "split-pdf", "organize-pdf", "extract-pages", "delete-pages", "resize-pdf", "n-up-pdf", "booklet-pdf"]);
+/** Adds what every PDF-writing tool must disclose about its input, in one place. */
+function disclosed(tools: Record<string, Run>) {
+  for (const [id, run] of Object.entries(tools)) tools[id] = async (files, p, ctx) => {
+    const outs = await run(files, p, ctx), seen = files.map((f) => traits.get(f)).filter(Boolean), extra: string[] = [];
+    if (seen.some((x) => x.signed)) extra.push("This file had a digital signature, which any change invalidates. Keep the original if you need it.");
+    if (seen.some((x) => x.restricted)) extra.push("The original's permission restrictions are not kept in this file.");
+    const lost = [...new Set(seen.flatMap((x) => x.rich))];
+    if (lost.length && DROPS_STRUCTURE.has(id)) extra.push(`Not carried over: ${lost.join(", ")}.`);
+    if (extra.length) for (const o of outs) if (o.type === PDF_T || (id === "split-pdf" && o.type === "application/zip")) o.note = [o.note, ...extra].filter(Boolean).join(" ");
+    return outs;
+  };
+  return tools;
+}
+
+export const pdfTools: Record<string, Run> = disclosed({
+  /** Rewrites a file at intake, so the preview and the editing engine read one unambiguous structure. */
+  "prepare-pdf": async ([f], p, ctx) => {
+    let bytes: Uint8Array = await bytesOf(f), repaired = false;
+    if (!new TextDecoder("latin1").decode(bytes.subarray(0, 1024)).includes("%PDF") || looksEncrypted(bytes)) return [{ name: f.name, type: PDF_T }];
+    if (p.normalise) {
+      const r = await qpdf(bytes, (i, o) => [i, o]);
+      bytes = r.bytes; repaired = r.warned;
+      const shown = await ctx.main<number>("pageCount", { doc: new Blob([bytes as BlobPart]), key: `prepare-${++imageRun}` });
+      if (shown !== (await PDFDocument.load(bytes, { updateMetadata: false })).getPageCount()) throw new Say(`${f.name} has a page structure Lathe cannot read reliably, so it was not opened.`);
+    }
+    const t = readTraits(await PDFDocument.load(bytes, { updateMetadata: false }), false);
+    return [{ name: f.name, type: PDF_T, bytes: p.normalise ? bytes : undefined, text: JSON.stringify({ signed: t.signed, repaired }) }];
+  },
   "merge-pdf": async (files, p, ctx) => {
     const d = await PDFDocument.create(), marks: { title: string; page: number }[] = [];
     for (let i = 0; i < files.length; i++) {
@@ -453,14 +517,16 @@ export const pdfTools: Record<string, Run> = {
       }
       if (cur.length) groups.push(cur);
     }
-    const entries = [];
+    const entries = []; let note = "", reused = false;
     for (let i = 0; i < groups.length; i++) {
       ctx.progress(i / groups.length, `Writing part ${i + 1} of ${groups.length}`);
       const g = groups[i], label = g.length === 1 ? `p${g[0] + 1}` : `p${g[0] + 1}-${g[g.length - 1] + 1}`;
-      entries.push({ name: `${base}-${label}.pdf`, bytes: await saved(await copy(doc, g)) });
+      const part = await finishRemoval(await copy(doc, g, true), p, ctx);
+      if (part.note) note = part.note; reused ||= part.reused;
+      entries.push({ name: `${base}-${label}.pdf`, bytes: part.bytes });
     }
-    if (entries.length === 1) return [out(entries[0].name, entries[0].bytes)];
-    return [{ ...zipOut(`${base}-split.zip`, entries), note: `${entries.length} files` }];
+    if (entries.length === 1) return [{ ...out(entries[0].name, entries[0].bytes, note.trim() || undefined), reused }];
+    return [{ ...zipOut(`${base}-split.zip`, entries), note: `${entries.length} files.${note}`, reused }];
   },
   "organize-pdf": async (files, p, ctx) => {
     const docs = await Promise.all(files.map((f) => open(f).then((x) => x.doc))), d = await PDFDocument.create();
@@ -478,13 +544,14 @@ export const pdfTools: Record<string, Run> = {
       if (o.rot) pg.setRotation(degrees((pg.getRotation().angle + o.rot) % 360));
       d.addPage(pg);
     });
-    return [out(`${stem(files[0].name)}-organised.pdf`, await saved(d), `${order.length} pages.${reuseNote(d)}`)];
+    const done = await finishRemoval(d, p, ctx);
+    return [{ ...out(`${stem(files[0].name)}-organised.pdf`, done.bytes, `${order.length} pages.${done.note}`), reused: done.reused }];
   },
   "extract-pages": (files, p, ctx) => each(files, ctx, async (f) => {
     if (!p.pages?.trim()) throw new Say("Enter the pages to keep, such as 2-4, 9.");
     const { doc } = await open(f), idx = parseRanges(p.pages, doc.getPageCount()).flat();
-    const r = await copy(doc, idx, true);
-    return out(`${stem(f.name)}-extract.pdf`, await saved(r), `${idx.length} pages.${reuseNote(r)}`);
+    const done = await finishRemoval(await copy(doc, idx, true), p, ctx);
+    return { ...out(`${stem(f.name)}-extract.pdf`, done.bytes, `${idx.length} pages.${done.note}`), reused: done.reused };
   }),
   "delete-pages": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc, bytes } = await open(f), n = doc.getPageCount(), drop = new Set(p.pages?.trim() ? parseRanges(p.pages, n).flat() : []);
@@ -498,8 +565,8 @@ export const pdfTools: Record<string, Run> = {
     if (!drop.size) throw new Say("Nothing to delete. Enter pages, or turn on blank page removal.");
     const keep = doc.getPageIndices().filter((i) => !drop.has(i));
     if (!keep.length) throw new Say("That would delete every page.");
-    const r = await copy(doc, keep, true);
-    return out(`${stem(f.name)}-trimmed.pdf`, await saved(r), `Removed ${drop.size} page${drop.size === 1 ? "" : "s"}, ${keep.length} left.${reuseNote(r)}`);
+    const done = await finishRemoval(await copy(doc, keep, true), p, ctx);
+    return { ...out(`${stem(f.name)}-trimmed.pdf`, done.bytes, `Removed ${drop.size} page${drop.size === 1 ? "" : "s"}, ${keep.length} left.${done.note}`), reused: done.reused };
   }),
   "rotate-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc } = await open(f), pages = doc.getPages();
@@ -592,6 +659,7 @@ export const pdfTools: Record<string, Run> = {
   }),
   "flatten-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc } = await open(f);
+    refuseXfa(f);
     try { const form = doc.getForm(); if (form.getFields().length) { form.updateFieldAppearances(); form.flatten(); } } catch { /* A broken form still has its annotations flattened below. */ }
     flattenAnnots(doc);
     return out(`${stem(f.name)}-flat.pdf`, await saved(doc));
@@ -624,8 +692,9 @@ export const pdfTools: Record<string, Run> = {
       const b = await render(ctx, bytes, f.id, i, p.dpi), c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true });
       g.drawImage(b, 0, 0); b.close(); g.fillStyle = "#000";
       for (const r of here) g.fillRect(Math.floor(r.x * c.width) - 1, Math.floor(r.y * c.height) - 1, Math.ceil(r.w * c.width) + 2, Math.ceil(r.h * c.height) + 2);
-      const v = visual(doc.getPage(i)), im = await d.embedJpg(await encode(g.getImageData(0, 0, c.width, c.height), "jpeg", 90)), pg = d.addPage([v.W, v.H]);
+      const v = visual(doc.getPage(i)), im = await d.embedJpg(await encode(g.getImageData(0, 0, c.width, c.height), "jpeg", 90)), pg = d.addPage([v.W, v.H]), unit = numOf(doc.getPage(i).node, "UserUnit");
       pg.drawImage(im, { x: 0, y: 0, width: v.W, height: v.H });
+      if (unit) pg.node.set(PDFName.of("UserUnit"), PDFNumber.of(unit));
     }
     const flat = n - kept.size;
     return [out(`${stem(f.name)}-redacted.pdf`, await saved(d), everyPage ? "Every page is now an image, so nothing hidden remains in the file. Run OCR PDF if you need searchable text." : `Flattened ${flat} of ${n} page${n === 1 ? "" : "s"}. The content under the boxes is gone from the file.`)];
@@ -648,7 +717,7 @@ export const pdfTools: Record<string, Run> = {
       if (p.title) doc.setTitle(p.title); if (p.author) doc.setAuthor(p.author); if (p.subject) doc.setSubject(p.subject);
       if (p.keywords) doc.setKeywords(p.keywords.split(",").map((x: string) => x.trim()));
     }
-    return out(`${stem(f.name)}-meta.pdf`, await doc.save({ useObjectStreams: true, updateFieldAppearances: false }), p.wipe ? "Document properties and XMP removed." : "Properties updated.");
+    return out(`${stem(f.name)}-meta.pdf`, await saved(doc, { updateFieldAppearances: false }), p.wipe ? "Document properties and XMP removed." : "Properties updated.");
   }),
 
   "sign-pdf": async ([f], p, ctx) => {
@@ -661,7 +730,9 @@ export const pdfTools: Record<string, Run> = {
     return [out(`${stem(f.name)}-signed.pdf`, await saved(doc))];
   },
   "fill-pdf": async ([f], p) => {
-    const { doc } = await open(f), form = doc.getForm();
+    const { doc } = await open(f);
+    refuseXfa(f);
+    const form = doc.getForm();
     for (const fd of form.getFields()) {
       const v = p.values?.[fd.getName()];
       if (v === undefined) continue;
@@ -670,7 +741,7 @@ export const pdfTools: Record<string, Run> = {
       else if ((fd instanceof PDFDropdown || fd instanceof PDFRadioGroup || fd instanceof PDFOptionList) && v) fd.select(String(v));
     }
     if (p.flatten) form.flatten();
-    return [out(`${stem(f.name)}-filled.pdf`, await doc.save())];
+    return [out(`${stem(f.name)}-filled.pdf`, await saved(doc))];
   },
   "watermark-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     if (!p.text?.trim()) throw new Say("Enter the watermark text.");
@@ -817,10 +888,11 @@ export const pdfTools: Record<string, Run> = {
     if (warn.length) lines.unshift(...warn.map((w) => `WARNING: ${w}`), "");
     return [{ name: `${stem(f.name)}-report.txt`, type: "text/plain", text: lines.join("\n"), note: warn[0] }];
   },
-};
+});
 
 export async function pdfFields(f: In) {
   const { doc } = await open(f);
+  refuseXfa(f);
   return doc.getForm().getFields().flatMap((x: any): { name: string; options: string[]; kind: string; value: unknown }[] => {
     const base = { name: x.getName(), options: x.getOptions?.() ?? [] };
     if (x instanceof PDFTextField) return [{ ...base, kind: "TextField", value: x.getText() ?? "" }];

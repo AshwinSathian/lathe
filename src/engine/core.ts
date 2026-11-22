@@ -1,6 +1,6 @@
 import { zipSync } from "fflate";
 export interface In { id: string; name: string; type: string; size: number; blob: Blob }
-export interface Out { name: string; type: string; bytes?: Uint8Array; text?: string; bitmap?: ImageBitmap; note?: string; failed?: string[]; swatches?: string[]; width?: number; height?: number }
+export interface Out { name: string; type: string; bytes?: Uint8Array; text?: string; bitmap?: ImageBitmap; note?: string; failed?: string[]; reused?: boolean; swatches?: string[]; width?: number; height?: number }
 export interface Ctx {
   preview: boolean;
   progress(p: number, label?: string): void;

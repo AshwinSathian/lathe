@@ -136,10 +136,32 @@ async function addFiles(list: File[]) {
   clearMsg();
   const used = tool.multi ? accepted : accepted.slice(0, 1), ignored = list.filter((f) => !used.includes(f));
   setNotice(ignored.length ? `Not added: ${listNames(ignored)}. ${tool.multi ? "This tool cannot use them." : "This tool works on one file at a time."}` : "");
-  const next = used.map((f) => ({ id: `f${++uid}`, name: f.name || "pasted-image.png", type: f.type, size: f.size, blob: f as Blob }));
+  const next = await prepared(used.map((f) => ({ id: `f${++uid}`, name: f.name || "pasted-image.png", type: f.type, size: f.size, blob: f as Blob })));
+  if (!next.length) return;
   files = tool.multi ? [...files, ...next] : next;
   current = tool.multi ? files.length - next.length : 0;
   afterFilesChanged();
+}
+// These tools choose pages by what the reader shows, so the file is rewritten first and every parser sees the same pages.
+const NORMALISE = new Set(["redact-pdf", "delete-pages", "extract-pages", "split-pdf", "organize-pdf"]);
+async function prepared(list: In[]) {
+  const normalise = NORMALISE.has(engineId);
+  if (!normalise && engineId !== "sign-pdf") return list;
+  busy = true; go.disabled = true; prog.classList.add("on"); setProgress(0.1, "Checking the file…");
+  const ok: In[] = [], notes: string[] = [];
+  for (const f of list) {
+    if (!isPdfFile(f)) { ok.push(f); continue; }
+    try {
+      const [o] = await runTool("prepare-pdf", [f], { normalise });
+      const t = o.text ? JSON.parse(o.text) : {};
+      if (t.signed && engineId === "sign-pdf") notes.push(`${f.name} has a digital signature. Adding a visual signature invalidates it.`);
+      if (t.repaired) notes.push(`${f.name} was damaged and has been repaired. Check every page.`);
+      ok.push(o.bytes ? { ...f, size: o.bytes.length, blob: new Blob([o.bytes as BlobPart], { type: "application/pdf" }) } : f);
+    } catch (e) { notes.push((e as Error).message); }
+  }
+  busy = false; prog.classList.remove("on"); go.disabled = !ready();
+  if (notes.length) setNotice([notice.textContent, ...notes].filter(Boolean).join(" "));
+  return ok;
 }
 function okFile(f: File) {
   const a = tool.accepts.split(",").map((x) => x.trim().toLowerCase()), n = f.name.toLowerCase(), t = f.type.toLowerCase();
@@ -357,6 +379,11 @@ function drawResults(ms: number) {
     if (o.url) row.append(el("a", { className: "btn small", href: o.url, download: o.name, textContent: "Download" }));
     results.append(row);
   });
+  if (outs.some((o) => o.reused)) {
+    const secure = el("button", { className: "btn alt", type: "button", textContent: "Remove securely" });
+    secure.onclick = () => { params.secure = true; run(); params.secure = false; };
+    results.append(secure);
+  }
   if (outs.length > 1) { const all = el("button", { className: "btn zip", type: "button", textContent: "Download all as ZIP" }); all.onclick = async () => { const { zipOut } = await import("../engine/core"); const z = zipOut("lathe.zip", outs.filter((o) => o.bytes || o.text != null).map((o) => ({ name: o.name, bytes: o.bytes ?? new TextEncoder().encode(o.text) }))); const a = el("a", { href: URL.createObjectURL(new Blob([z.bytes as BlobPart], { type: "application/zip" })), download: z.name }); a.click(); }; results.append(all); }
   const first = outs[0];
   if (first?.text != null && !first.swatches) {

@@ -123,6 +123,7 @@ async function rasterSvg({ text }: { text: string }) {
 }
 
 const OPS: Record<string, (a: any) => Promise<any>> = {
+  pageCount: async ({ doc, key }) => (await openPdf(key, doc)).numPages,
   async render({ doc, key, page, dpi, gray }) { const d = await openPdf(key, doc), c = await renderPage(d, page, dpi / 72, gray); return createImageBitmap(c); },
   async text({ doc, key, page }) {
     const d = await openPdf(key, doc), pg = await d.getPage(page + 1), vp = pg.getViewport({ scale: 1 }), tc = await pg.getTextContent();

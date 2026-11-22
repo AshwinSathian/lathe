@@ -4,9 +4,22 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ## [Unreleased]
 
+### Security
+
+- Delete, extract, split and organise now remove the page the reader shows, even in a PDF with two conflicting page trees
+- All four warn when a kept page reuses removed content, and offer Remove securely, which rebuilds the pages as images
+- Text replaced in an earlier revision of a PDF no longer survives rotate, watermark, page numbers, crop or flatten
+- Keep-text redaction flattens a page that shares an annotation or its text with a redacted page
+
+### Changed
+
+- Tools say when a change invalidates a digital signature, drops permission restrictions, or does not carry over forms, attachments and bookmarks
+- Fill and Flatten refuse XFA forms instead of deleting them
+
 ### Fixed
 
 - One damaged file no longer loses the rest of a batch. Finished files stay available and failed files are named
+- Redaction keeps a page's physical size when the PDF uses UserUnit
 
 ## [0.1.5] - 2026-11-22
 
