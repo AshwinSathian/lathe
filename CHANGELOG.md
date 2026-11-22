@@ -19,7 +19,7 @@ First public release, with 60 tools and 22 preset format conversions.
 ### Security
 
 - Removing pages no longer carries them along through links or form fields
-- Redaction removes images that a kept page lists but only a redacted page draws
+- Redaction also flattens kept pages that can reach an image, form or pattern from a redacted page
 - Metadata removal drops data between JPEG scans, after the image, and in unknown PNG chunks
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool

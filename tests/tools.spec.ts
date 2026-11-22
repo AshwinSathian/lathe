@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { unzipSync } from "fflate";
 import { tools } from "../src/data/tools";
 
@@ -65,8 +65,12 @@ const pdfText = (page: Page, o: { b64: string }, password = "") => page.evaluate
   return t;
 }, [o.b64, password]);
 
-test("redaction removes the text from the file", async ({ page }) => {
-  await open(page, "redact-pdf", ["a.pdf"]); const [o] = await exec(page, params["redact-pdf"]);
+test("redaction removes the text from the file and leaves other pages selectable", async ({ page }) => {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica);
+  for (const n of [1, 2]) d.addPage([400, 400]).drawText(`Alpha page ${n}`, { x: 40, y: 300, size: 20, font: f });
+  await page.goto("/redact-pdf"); await page.locator("#stage input[type=file]").first().setInputFiles({ name: "t.pdf", mimeType: "application/pdf", buffer: Buffer.from(await d.save()) });
+  await expect(page.locator("#stage .tray")).toBeVisible();
+  const [o] = await exec(page, { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 0.5 }] });
   await expect(page.locator("#stage canvas").first()).toBeVisible();
   const t = await pdfText(page, o); expect(t).not.toContain("Alpha page 1"); expect(t).toContain("Alpha page 2");
 });

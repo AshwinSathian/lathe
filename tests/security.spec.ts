@@ -1,6 +1,6 @@
 // Regression tests for ways a privacy tool can quietly keep what it promised to remove.
 import { test, expect, type Page } from "@playwright/test";
-import { PDFDict, PDFDocument, PDFName, PDFString, StandardFonts } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName, PDFOperator, PDFString, StandardFonts } from "pdf-lib";
 import { inflateSync } from "node:zlib";
 import sharp from "sharp";
 
@@ -39,7 +39,7 @@ test("organiser drops a deleted page behind a link", async ({ page }) => {
   const out = await run(page, "organize-pdf", file("linked.pdf", await linked()), { order: [{ f: 0, page: 0, rot: 0 }] });
   expect(hasSecret(out)).toBe(false);
 });
-test("redaction removes an image a kept page lists but does not draw", async ({ page }) => {
+test("redaction flattens a kept page that lists a hidden image", async ({ page }) => {
   const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), f = await d.embedFont(StandardFonts.Helvetica);
   const a = d.addPage([300, 300]), b = d.addPage([300, 300]); a.drawImage(jpg, { x: 0, y: 0, width: 300, height: 300 }); b.drawText("KEPT", { x: 20, y: 200, size: 20, font: f });
   await d.flush();
@@ -49,15 +49,39 @@ test("redaction removes an image a kept page lists but does not draw", async ({ 
   const o = await PDFDocument.load(out); let same = 0;
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
   expect(same).toBe(0);
-  expect(plain(out)).toMatch(/4b455054/i);
 });
-test("redaction keeps a shared logo and selectable text on kept pages", async ({ page }) => {
+test("redaction flattens a kept page that draws part of a shared image", async ({ page }) => {
   const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), f = await d.embedFont(StandardFonts.Helvetica);
   for (let i = 0; i < 2; i++) { const p = d.addPage([300, 300]); p.drawImage(jpg, { x: 0, y: 0, width: 64, height: 64 }); p.drawText("KEPT", { x: 20, y: 200, size: 20, font: f }); }
   const out = await run(page, "redact-pdf", file("logo.pdf", Buffer.from(await d.save())), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   const o = await PDFDocument.load(out); let same = 0;
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
-  expect(same).toBe(1); expect(plain(out)).toMatch(/4b455054/i);
+  expect(same).toBe(0); expect(o.getPageCount()).toBe(2);
+});
+test("metadata wipe removes private data held in a separate stream", async ({ page }) => {
+  const d = await PDFDocument.create(), p = d.addPage([200, 200]), priv = d.context.register(d.context.stream("HIDDENPRIVATE", {}));
+  p.node.set(PDFName.of("PieceInfo"), d.context.obj({ App: { Private: priv } }));
+  const out = await run(page, "pdf-metadata", file("m.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { wipe: true });
+  expect(plain(out)).not.toContain("HIDDENPRIVATE"); expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
+});
+test("redaction flattens a kept page whose form reaches a hidden image", async ({ page }) => {
+  const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer());
+  const a = d.addPage([300, 300]), b = d.addPage([300, 300]); a.drawImage(jpg, { x: 0, y: 0, width: 300, height: 300 }); await d.flush();
+  const form = d.context.register(d.context.stream("q Q", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 10, 10], Resources: { XObject: { Hidden: jpg.ref } } }));
+  b.node.Resources().set(PDFName.of("XObject"), d.context.obj({ Wrap: form }));
+  b.pushOperators(PDFOperator.of("Do" as any, [PDFName.of("Wrap")]));
+  const out = await run(page, "redact-pdf", file("nested.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const o = await PDFDocument.load(out); let same = 0;
+  for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
+  expect(same).toBe(0);
+});
+test("removing a page drops its form field values from kept pages", async ({ page }) => {
+  const d = await PDFDocument.create(), a = d.addPage([300, 300]), b = d.addPage([300, 300]), form = d.getForm(), f = form.createTextField("shared");
+  f.setText("HIDDENVALUE"); f.addToPage(a, { x: 10, y: 10, width: 100, height: 20 }); f.addToPage(b, { x: 10, y: 10, width: 100, height: 20 });
+  for (const w of f.acroField.getWidgets()) w.dict.delete(PDFName.of("P"));
+  const src = Buffer.from(await d.save({ useObjectStreams: false }));
+  const out = await run(page, "delete-pages", file("field.pdf", src), { pages: "2" });
+  expect(plain(out)).not.toContain("HIDDENVALUE"); expect((await PDFDocument.load(out)).getPageCount()).toBe(1);
 });
 test("a crafted Markdown link cannot inject PDF objects", async ({ page }) => {
   const md = "[click](https://example.com/a)/S/JavaScript/JS(app.alert(1))>>) and [bad](javascript:alert(1))\n";
