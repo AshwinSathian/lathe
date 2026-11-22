@@ -201,3 +201,35 @@ export function lanczos(src: ImageData, w: number, h: number): ImageData {
   }
   return new ImageData(out, w, h);
 }
+
+export const joined = (parts: Uint8Array[]) => { const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0)); let at = 0; for (const p of parts) { out.set(p, at); at += p.length; } return out; };
+
+/**
+ * Removes metadata without touching the compressed pixels, or returns null so the caller re-encodes.
+ * Walks every scan to the real end of the image, so markers between scans and anything appended after it are dropped.
+ */
+export function stripJpeg(b: Uint8Array) {
+  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+  const parts: Uint8Array[] = [b.subarray(0, 2)], text = (at: number, n: number) => String.fromCharCode(...b.subarray(at, at + n));
+  let i = 2;
+  while (i + 1 < b.length) {
+    if (b[i] !== 0xff) return null;
+    while (b[i + 1] === 0xff) i++;
+    const m = b[i + 1];
+    if (m === 0xd9) { parts.push(b.subarray(i, i + 2)); return joined(parts); }
+    if (m === 0 || m === 0x01 || (m >= 0xd0 && m <= 0xd8) || i + 4 > b.length) return null;
+    const len = (b[i + 2] << 8) | b[i + 3], end = i + 2 + len;
+    if (len < 2 || end > b.length) return null;
+    const isApp = m >= 0xe0 && m <= 0xef;
+    // Kept only if decoding depends on them: plain JFIF without a thumbnail, the colour profile, and Adobe's colour transform.
+    const keep = !isApp && m !== 0xfe || (m === 0xe0 && text(i + 4, 5) === "JFIF\0" && b[i + 16] === 0 && b[i + 17] === 0) || (m === 0xe2 && text(i + 4, 12) === "ICC_PROFILE\0") || (m === 0xee && len === 14 && text(i + 4, 5) === "Adobe");
+    if (keep) parts.push(b.subarray(i, end));
+    i = end;
+    if (m !== 0xda) continue;
+    let z = i;
+    while (z + 1 < b.length && !(b[z] === 0xff && b[z + 1] !== 0 && !(b[z + 1] >= 0xd0 && b[z + 1] <= 0xd7))) z++;
+    if (z + 1 >= b.length) return null;
+    parts.push(b.subarray(i, z)); i = z;
+  }
+  return null;
+}

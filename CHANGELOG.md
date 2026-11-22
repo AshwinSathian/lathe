@@ -2,14 +2,21 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.6] - 2026-11-22
 
 ### Security
 
 - Delete, extract, split and organise now remove the page the reader shows, even in a PDF with two conflicting page trees
 - All four warn when a kept page reuses removed content, and offer Remove securely, which rebuilds the pages as images
 - Text replaced in an earlier revision of a PDF no longer survives rotate, watermark, page numbers, crop or flatten
+- Sign PDF places the mark on the page the reader shows, even in a PDF with conflicting page trees
 - Keep-text redaction flattens a page that shares an annotation or its text with a redacted page
+- Images to PDF no longer embeds a photo's GPS, camera or author data, and the metadata wipe removes it from JPEGs already in a PDF
+- The metadata wipe removes comment authors and lists what remains in the file
+- Typed text such as names, titles and watermarks is no longer stored, and text stored by earlier versions is deleted
+- A file passed to the next tool is encrypted in browser storage
+- ZIP entries can no longer escape the extraction folder
+- Optimise SVG removes active content, foreign HTML and remote references
 
 ### Changed
 
@@ -100,6 +107,7 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[0.1.6]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.6
 [0.1.5]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.5
 [0.1.4]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.4
 [0.1.3]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.3

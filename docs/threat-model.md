@@ -18,7 +18,7 @@ Lathe's central promise is that your file stays on your device. This page sets o
 
 - **A compromised host or CDN.** If this site or jsDelivr served malicious code, it would run in your tab. The CSP limits where it could send data, but both allowed hosts accept requests. For stronger assurance, [self-host](self-hosting.md) and block outbound traffic.
 - **Cloudflare, which hosts the public site.** Its JS Detections feature inserts an inline bot-detection script into each page, and this site cannot turn that off. The CSP blocks the script and a production test checks that its loader is never requested, so browsers log one CSP error. Self-hosting removes it.
-- **Page removal with shared content.** Delete, extract and organise keep what a kept page still draws, such as a repeated logo, and say so in the result. Use Redact PDF when content must be gone.
+- **Page removal with shared content.** Delete, extract, split and organise keep what a kept page still draws, such as a repeated logo, and say so in the result. Remove securely rebuilds the pages as images when that content must go.
 - **Malware or extensions on your device.** Browser extensions can read the page.
 - **Who sees your downloads.** jsDelivr and Hugging Face can see your IP address when you download a model. They receive no file data.
 - **Blur and pixelation.** These can sometimes be reversed. Use a solid block for text and numbers.
@@ -32,7 +32,7 @@ Lathe's central promise is that your file stays on your device. This page sets o
 |---|---|---|
 | App and engines | Service worker cache | Until the browser evicts them |
 | AI models | Browser Cache API | Until the browser evicts them |
-| Tool settings, without passwords or free text | `localStorage` | Until cleared |
-| A file passed to the next tool | IndexedDB | Until the next page opens it |
+| Tool choices such as sliders and menus. Nothing you type | `localStorage` | Until cleared |
+| A file passed to the next tool, encrypted with AES-GCM. The key is in that tab's `sessionStorage` | IndexedDB | Until the next page opens it |
 
-A file is written to IndexedDB only when you pick the next tool. If that navigation is interrupted, the next Lathe page you open deletes it.
+A file is written to IndexedDB only when you pick the next tool. If that navigation is interrupted, the next Lathe page you open deletes it. If the tab is closed first, the key is gone and what remains cannot be read.

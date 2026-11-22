@@ -8,6 +8,9 @@ const list = () => (index ??= fetch("/tools.json").then((r) => r.json()));
 // A file handed between tools is stored only for the navigation. Anything left from an interrupted one is removed here.
 if (!new URLSearchParams(location.search).has("with")) clearStash().catch(() => { /* Storage may be unavailable, and then nothing was stored. */ });
 
+// Earlier versions stored typed text with settings. Anything in the old format is deleted.
+try { for (const k of Object.keys(localStorage)) if (k.startsWith("lathe:") && !/^lathe:(model|settings):/.test(k)) localStorage.removeItem(k); } catch { /* Private windows can refuse storage. */ }
+
 // Command palette
 const dlg = $<HTMLDialogElement>("dialog.palette"), input = dlg.querySelector("input"), ul = dlg.querySelector("ul");
 let hits: Entry[] = [], sel = 0;

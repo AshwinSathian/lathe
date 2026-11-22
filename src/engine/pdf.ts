@@ -1,7 +1,7 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFString, PDFHexString, PDFContentStream, decodePDFRawStream, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFObject, type PDFPage } from "pdf-lib";
 import { unzlibSync } from "fflate";
 import { Say, bytesOf, eachFile as each, pagesIn, parseRanges, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
-import { EXT, MIME, encode, load as loadImage, sniff } from "./codecs";
+import { EXT, MIME, encode, load as loadImage, sniff, stripJpeg } from "./codecs";
 import qpdfWasm from "@neslinesli93/qpdf-wasm/dist/qpdf.wasm?url";
 
 const PDF_T = "application/pdf";
@@ -49,7 +49,7 @@ const refuseXfa = (f: In) => { if (traits.get(f)?.xfa) throw new Say(`${f.name} 
 
 async function open(f: In, p: any = {}): Promise<{ doc: PDFDocument; bytes: Uint8Array }> {
   const loaded = (doc: PDFDocument, bytes: Uint8Array) => { traits.set(f, readTraits(doc, restricted)); return { doc, bytes }; };
-  let restricted = false;
+  let restricted = !!f.restricted;
   let bytes: Uint8Array = await bytesOf(f);
   if (sniff(bytes) !== "pdf" && !new TextDecoder("latin1").decode(bytes.subarray(0, 1024)).includes("%PDF")) throw new Say(`${f.name} is not a PDF.`);
   if (looksEncrypted(bytes)) {
@@ -148,10 +148,9 @@ async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[], track =
   } finally { undo.reverse().forEach((f) => f()); }
 }
 const copy = async (src: PDFDocument, idx: number[], track = false) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx, track)).forEach((x) => d.addPage(x)); return d; };
-let imageRun = 0;
 /** Rebuilds every page from pixels, so nothing the pages merely reference can remain. */
 async function asImages(bytes: Uint8Array, ctx: Ctx, dpi = 200) {
-  const src = await PDFDocument.load(bytes), d = await PDFDocument.create(), key = `images-${++imageRun}`;
+  const src = await PDFDocument.load(bytes), d = await PDFDocument.create(), key = crypto.randomUUID();
   for (let i = 0; i < src.getPageCount(); i++) {
     ctx.progress(i / src.getPageCount(), `Rebuilding page ${i + 1}`);
     const b = await render(ctx, bytes, key, i, dpi), v = visual(src.getPage(i)), im = await d.embedJpg(await encode(toImg(b), "jpeg", 90));
@@ -463,6 +462,13 @@ function textFromItems(items: { str: string; x: number; y: number; h: number; w:
   return o.join("\n").replace(/\n{3,}/g, "\n\n");
 }
 
+/** Content a metadata wipe deliberately leaves, because removing it would change the document. */
+function stillInside(doc: PDFDocument) {
+  const objs = doc.context.enumerateIndirectObjects().map(([, o]) => o), names = doc.catalog.lookup(PDFName.of("Names"));
+  const comment = objs.some((o) => o instanceof PDFDict && o.has(PDFName.of("Rect")) && o.has(PDFName.of("Contents")) && nameOf(o.lookup(PDFName.of("Subtype"))) !== "Widget");
+  const script = doc.catalog.has(PDFName.of("OpenAction")) || (names instanceof PDFDict && names.has(PDFName.of("JavaScript"))) || objs.some((o) => o instanceof PDFDict && nameOf(o.lookup(PDFName.of("S"))) === "JavaScript");
+  return [comment ? "comments" : "", ...readTraits(doc, false).rich, script ? "scripts" : "", doc.catalog.has(PDFName.of("OCProperties")) ? "layer names" : ""].filter(Boolean);
+}
 const DROPS_STRUCTURE = new Set(["merge-pdf", "split-pdf", "organize-pdf", "extract-pages", "delete-pages", "resize-pdf", "n-up-pdf", "booklet-pdf"]);
 /** Adds what every PDF-writing tool must disclose about its input, in one place. */
 function disclosed(tools: Record<string, Run>) {
@@ -481,16 +487,18 @@ function disclosed(tools: Record<string, Run>) {
 export const pdfTools: Record<string, Run> = disclosed({
   /** Rewrites a file at intake, so the preview and the editing engine read one unambiguous structure. */
   "prepare-pdf": async ([f], p, ctx) => {
-    let bytes: Uint8Array = await bytesOf(f), repaired = false;
-    if (!new TextDecoder("latin1").decode(bytes.subarray(0, 1024)).includes("%PDF") || looksEncrypted(bytes)) return [{ name: f.name, type: PDF_T }];
-    if (p.normalise) {
-      const r = await qpdf(bytes, (i, o) => [i, o]);
-      bytes = r.bytes; repaired = r.warned;
-      const shown = await ctx.main<number>("pageCount", { doc: new Blob([bytes as BlobPart]), key: `prepare-${++imageRun}` });
-      if (shown !== (await PDFDocument.load(bytes, { updateMetadata: false })).getPageCount()) throw new Say(`${f.name} has a page structure Lathe cannot read reliably, so it was not opened.`);
-    }
+    const input = await bytesOf(f);
+    if (!new TextDecoder("latin1").decode(input.subarray(0, 1024)).includes("%PDF")) return [{ name: f.name, type: PDF_T }];
+    // A text search for /Encrypt can be fooled, so every file goes through qpdf. Only a real password stops it here.
+    let r: Awaited<ReturnType<typeof qpdf>>;
+    try { r = await qpdf(input, (i, o) => ["--password=", "--decrypt", i, o]); }
+    catch (e) { if (e instanceof Say && /password/.test(e.message)) return [{ name: f.name, type: PDF_T }]; throw e; }
+    const bytes = r.bytes, repaired = r.warned;
+    const restricted = !!(await PDFDocument.load(input, { ignoreEncryption: true, updateMetadata: false })).context.trailerInfo.Encrypt;
+    const shown = await ctx.main<number>("pageCount", { doc: new Blob([bytes as BlobPart]), key: crypto.randomUUID() });
+    if (shown !== (await PDFDocument.load(bytes, { updateMetadata: false })).getPageCount()) throw new Say(`${f.name} has a page structure Lathe cannot read reliably, so it was not opened.`);
     const t = readTraits(await PDFDocument.load(bytes, { updateMetadata: false }), false);
-    return [{ name: f.name, type: PDF_T, bytes: p.normalise ? bytes : undefined, text: JSON.stringify({ signed: t.signed, repaired }) }];
+    return [{ name: f.name, type: PDF_T, bytes, text: JSON.stringify({ signed: t.signed, repaired, restricted }) }];
   },
   "merge-pdf": async (files, p, ctx) => {
     const d = await PDFDocument.create(), marks: { title: string; page: number }[] = [];
@@ -700,7 +708,7 @@ export const pdfTools: Record<string, Run> = disclosed({
     return [out(`${stem(f.name)}-redacted.pdf`, await saved(d), everyPage ? "Every page is now an image, so nothing hidden remains in the file. Run OCR PDF if you need searchable text." : `Flattened ${flat} of ${n} page${n === 1 ? "" : "s"}. The content under the boxes is gone from the file.`)];
   },
   "pdf-metadata": (files, p, ctx) => each(files, ctx, async (f) => {
-    const { doc } = await open(f);
+    const { doc } = await open(f); let wiped = "";
     if (p.wipe) {
       const info = doc.context.trailerInfo.Info;
       if (info) { doc.context.delete(info as PDFRef); doc.context.trailerInfo.Info = undefined; }
@@ -711,13 +719,20 @@ export const pdfTools: Record<string, Run> = disclosed({
         if (!d) continue;
         if (nameOf(d.lookup(PDFName.of("Type"))) === "Metadata") { doc.context.delete(ref); continue; }
         for (const k of keys) d.delete(k);
+        // /T names the author on a comment. On a form widget it is the field's name, which the form needs.
+        if (d.has(PDFName.of("Rect")) && nameOf(d.lookup(PDFName.of("Subtype"))) !== "Widget") d.delete(PDFName.of("T"));
+        if (o instanceof PDFRawStream && nameOf(o.dict.lookup(PDFName.of("Filter"))) === "DCTDecode") { const clean = stripJpeg(o.contents); if (clean) doc.context.assign(ref, PDFRawStream.of(o.dict, clean)); }
       }
       collectGarbage(doc);
+      const left = stillInside(doc);
+      wiped = `Document properties, XMP and image metadata removed.${left.length ? ` Still in the file: ${left.join(", ")}. Use Redact PDF if these must go.` : ""}`;
     } else {
+      // An old XMP packet would keep contradicting the new properties.
+      doc.catalog.delete(PDFName.of("Metadata"));
       if (p.title) doc.setTitle(p.title); if (p.author) doc.setAuthor(p.author); if (p.subject) doc.setSubject(p.subject);
       if (p.keywords) doc.setKeywords(p.keywords.split(",").map((x: string) => x.trim()));
     }
-    return out(`${stem(f.name)}-meta.pdf`, await saved(doc, { updateFieldAppearances: false }), p.wipe ? "Document properties and XMP removed." : "Properties updated.");
+    return out(`${stem(f.name)}-meta.pdf`, await saved(doc, { updateFieldAppearances: false }), wiped || "Properties updated.");
   }),
 
   "sign-pdf": async ([f], p, ctx) => {
@@ -774,7 +789,7 @@ export const pdfTools: Record<string, Run> = disclosed({
       const f = files[i], b = await bytesOf(f), fmt = sniff(b); let im;
       let upright = fmt === "jpeg";
       if (upright) { const exifr = (await import("exifr/dist/full.esm.mjs")).default; const o = await exifr.orientation(b).catch(() => 1); upright = !o || o === 1; }
-      if (upright) { try { im = await d.embedJpg(b); } catch { im = null; } }
+      if (upright) { const clean = stripJpeg(b); if (clean) try { im = await d.embedJpg(clean); } catch { im = null; } }
       if (!im) {
         const img = await loadImage(f, { ...ctx, preview: false });
         let alpha = false; for (let k = 3; k < img.data.length; k += 4) if (img.data[k] < 255) { alpha = true; break; }

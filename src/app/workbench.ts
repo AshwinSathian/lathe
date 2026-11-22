@@ -6,17 +6,17 @@ import { addBox, cropEditor, el, formFields, pageMarkup, pagesEditor, regionSurf
 const bench = document.querySelector<HTMLElement>("#bench"), stage = document.querySelector<HTMLElement>("#stage"), panel = document.querySelector<HTMLElement>("#panel");
 const tool: Tool = JSON.parse(bench.dataset.tool);
 const engineId = tool.run ?? tool.id;
-const storeKey = `lathe:${engineId}`;
-const secret = new Set(tool.controls.filter((c) => c.type === "password").map((c) => c.k));
+const storeKey = `lathe:settings:${engineId}`;
 
 let saved: Record<string, unknown> = {};
 try { saved = JSON.parse(localStorage.getItem(storeKey) ?? "{}"); } catch { /* Private windows can refuse storage. */ }
 const params: Record<string, any> = {};
-for (const c of tool.controls) params[c.k] = secret.has(c.k) ? "" : saved[c.k] ?? ("def" in c ? c.def : "");
+// Only choices are remembered. Anything typed could name a person or a document.
+const remembered = (c: Control) => ["range", "select", "toggle", "color"].includes(c.type) && c.k !== "flattenAll";
+for (const c of tool.controls) params[c.k] = remembered(c) ? saved[c.k] ?? ("def" in c ? c.def : "") : "def" in c ? c.def ?? "" : "";
 Object.assign(params, tool.preset);
-// A text box such as a watermark keeps its last value, but free text never persists between documents.
 // The redaction safety setting always starts on, so one relaxed document cannot weaken the next.
-const remember = () => { try { const o: Record<string, unknown> = {}; for (const c of tool.controls) if (!secret.has(c.k) && c.type !== "textarea" && c.k !== "pages" && c.k !== "ranges" && c.k !== "flattenAll") o[c.k] = params[c.k]; localStorage.setItem(storeKey, JSON.stringify(o)); } catch { /* Settings just will not persist. */ } };
+const remember = () => { try { const o: Record<string, unknown> = {}; for (const c of tool.controls) if (remembered(c)) o[c.k] = params[c.k]; localStorage.setItem(storeKey, JSON.stringify(o)); } catch { /* Settings just will not persist. */ } };
 
 let files: In[] = [], current = 0, outs: (Out & { url?: string })[] = [], busy = false, consented = !tool.model;
 let uid = 0, previewTimer = 0, previewBusy = false, previewAgain = false, changedDuringRun = false;
@@ -143,20 +143,20 @@ async function addFiles(list: File[]) {
   afterFilesChanged();
 }
 // These tools choose pages by what the reader shows, so the file is rewritten first and every parser sees the same pages.
-const NORMALISE = new Set(["redact-pdf", "delete-pages", "extract-pages", "split-pdf", "organize-pdf"]);
+const NORMALISE = new Set(["redact-pdf", "sign-pdf", "delete-pages", "extract-pages", "split-pdf", "organize-pdf"]);
 async function prepared(list: In[]) {
-  const normalise = NORMALISE.has(engineId);
-  if (!normalise && engineId !== "sign-pdf") return list;
+  if (!NORMALISE.has(engineId)) return list;
   busy = true; go.disabled = true; prog.classList.add("on"); setProgress(0.1, "Checking the file…");
   const ok: In[] = [], notes: string[] = [];
   for (const f of list) {
     if (!isPdfFile(f)) { ok.push(f); continue; }
     try {
-      const [o] = await runTool("prepare-pdf", [f], { normalise });
+      const [o] = await runTool("prepare-pdf", [f], {});
       const t = o.text ? JSON.parse(o.text) : {};
       if (t.signed && engineId === "sign-pdf") notes.push(`${f.name} has a digital signature. Adding a visual signature invalidates it.`);
       if (t.repaired) notes.push(`${f.name} was damaged and has been repaired. Check every page.`);
-      ok.push(o.bytes ? { ...f, size: o.bytes.length, blob: new Blob([o.bytes as BlobPart], { type: "application/pdf" }) } : f);
+      // A new id, so nothing rendered from the original bytes can be reused for the rewritten file.
+      ok.push(o.bytes ? { ...f, id: `f${++uid}`, size: o.bytes.length, restricted: !!t.restricted, blob: new Blob([o.bytes as BlobPart], { type: "application/pdf" }) } : f);
     } catch (e) { notes.push((e as Error).message); }
   }
   busy = false; prog.classList.remove("on"); go.disabled = !ready();
@@ -432,5 +432,5 @@ if (new URLSearchParams(location.search).has("with")) {
   unstash().then((f) => f.length && addFiles(f)).catch(() => { /* Nothing was handed over. */ });
 }
 // The test suite sets this flag before the page loads. Normal visits never expose settings or output.
-if ((window as any).__latheTest) (window as any).__lathe = { addFiles, get outs() { return outs; }, params, get busy() { return busy; } };
+if ((window as any).__latheTest) (window as any).__lathe = { addFiles, get files() { return files; }, get outs() { return outs; }, params, get busy() { return busy; } };
 

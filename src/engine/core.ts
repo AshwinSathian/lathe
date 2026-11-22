@@ -1,5 +1,5 @@
 import { zipSync } from "fflate";
-export interface In { id: string; name: string; type: string; size: number; blob: Blob }
+export interface In { id: string; name: string; type: string; size: number; blob: Blob; restricted?: boolean }
 export interface Out { name: string; type: string; bytes?: Uint8Array; text?: string; bitmap?: ImageBitmap; note?: string; failed?: string[]; reused?: boolean; swatches?: string[]; width?: number; height?: number }
 export interface Ctx {
   preview: boolean;
@@ -29,13 +29,15 @@ export async function eachFile(files: In[], ctx: Ctx, fn: (f: In, i: number) => 
 
 export const bytesOf = async (f: In | Blob) => new Uint8Array(await ("blob" in f ? f.blob : f).arrayBuffer());
 export const stem = (name: string) => name.replace(/\.[^.]+$/, "") || "file";
+/** An entry name that stays inside the folder it is extracted to, on any operating system. */
+const safeEntry = (name: string) => name.replace(/[\\:\x00-\x1f]/g, "_").split("/").filter((x) => x && !/^\.+$/.test(x)).map((x) => x.replace(/\.\.+/g, ".")).join("/") || "file";
 export const zipOut = (name: string, entries: { name: string; bytes: Uint8Array }[]): Out => {
   const seen = new Map<string, number>();
   const files: Record<string, [Uint8Array, { level: 0 }]> = {};
   for (const e of entries) {
-    const n = seen.get(e.name) ?? 0;
-    seen.set(e.name, n + 1);
-    files[n ? e.name.replace(/(\.[^.]+)?$/, ` (${n})$1`) : e.name] = [e.bytes, { level: 0 }];
+    const entry = safeEntry(e.name), n = seen.get(entry) ?? 0;
+    seen.set(entry, n + 1);
+    files[n ? entry.replace(/(\.[^.]+)?$/, ` (${n})$1`) : entry] = [e.bytes, { level: 0 }];
   }
   return { name, type: "application/zip", bytes: zipSync(files) };
 };

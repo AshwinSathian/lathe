@@ -1,5 +1,5 @@
 import { Say, bytesOf, eachFile as each, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
-import { EXT, MIME, encode, flatten, hasAlpha, ico, lanczos, load, pngBytes, resolveFormat, save, sniff, toData } from "./codecs";
+import { EXT, MIME, encode, flatten, hasAlpha, ico, joined, lanczos, load, pngBytes, resolveFormat, save, sniff, stripJpeg, toData } from "./codecs";
 import { LOOKS, shade } from "./gl";
 
 const canvas = (w: number, h: number) => { const c = new OffscreenCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); const g = c.getContext("2d", { willReadFrequently: true }); g.imageSmoothingQuality = "high"; return { c, g }; };
@@ -34,37 +34,7 @@ async function hide(img: ImageData, boxes: { x: number; y: number; w: number; h:
   return dataOf(c);
 }
 
-const joined = (parts: Uint8Array[]) => { const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0)); let at = 0; for (const p of parts) { out.set(p, at); at += p.length; } return out; };
 
-/**
- * Removes metadata without touching the compressed pixels, or returns null so the caller re-encodes.
- * Walks every scan to the real end of the image, so markers between scans and anything appended after it are dropped.
- */
-function stripJpeg(b: Uint8Array) {
-  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
-  const parts: Uint8Array[] = [b.subarray(0, 2)], text = (at: number, n: number) => String.fromCharCode(...b.subarray(at, at + n));
-  let i = 2;
-  while (i + 1 < b.length) {
-    if (b[i] !== 0xff) return null;
-    while (b[i + 1] === 0xff) i++;
-    const m = b[i + 1];
-    if (m === 0xd9) { parts.push(b.subarray(i, i + 2)); return joined(parts); }
-    if (m === 0 || m === 0x01 || (m >= 0xd0 && m <= 0xd8) || i + 4 > b.length) return null;
-    const len = (b[i + 2] << 8) | b[i + 3], end = i + 2 + len;
-    if (len < 2 || end > b.length) return null;
-    const isApp = m >= 0xe0 && m <= 0xef;
-    // Kept only if decoding depends on them: plain JFIF without a thumbnail, the colour profile, and Adobe's colour transform.
-    const keep = !isApp && m !== 0xfe || (m === 0xe0 && text(i + 4, 5) === "JFIF\0" && b[i + 16] === 0 && b[i + 17] === 0) || (m === 0xe2 && text(i + 4, 12) === "ICC_PROFILE\0") || (m === 0xee && len === 14 && text(i + 4, 5) === "Adobe");
-    if (keep) parts.push(b.subarray(i, end));
-    i = end;
-    if (m !== 0xda) continue;
-    let z = i;
-    while (z + 1 < b.length && !(b[z] === 0xff && b[z + 1] !== 0 && !(b[z + 1] >= 0xd0 && b[z + 1] <= 0xd7))) z++;
-    if (z + 1 >= b.length) return null;
-    parts.push(b.subarray(i, z)); i = z;
-  }
-  return null;
-}
 /** Keeps only the chunks needed to draw the image, and stops at IEND. */
 function stripPng(b: Uint8Array) {
   const allow = new Set(["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "gAMA", "cHRM", "sRGB", "iCCP", "sBIT", "pHYs", "acTL", "fcTL", "fdAT"]);
@@ -152,6 +122,18 @@ const similarity = (a: ImageData, b: ImageData) => {
   return n ? total / n : 1;
 };
 
+/** Removes what can run or phone home when an SVG is opened elsewhere. */
+const scrubSvg = {
+  name: "lathe-scrub",
+  fn: () => ({ element: { enter(node: any, parent: any) {
+    const tag = node.name.split(":").pop().toLowerCase(), link = node.attributes.href ?? node.attributes["xlink:href"] ?? "";
+    const animatesLink = ["animate", "set"].includes(tag) && /href$/i.test(node.attributes.attributeName ?? "");
+    const remote = ["image", "use", "feimage"].includes(tag) && link && !link.startsWith("#") && !/^data:image\/(png|jpeg|gif|webp);/i.test(link);
+    if (["script", "foreignobject", "iframe", "embed", "object"].includes(tag) || animatesLink || remote) { parent.children = parent.children.filter((c: unknown) => c !== node); return; }
+    for (const [k, v] of Object.entries(node.attributes)) if (/^on/i.test(k) || /^\s*javascript:/i.test(String(v))) delete node.attributes[k];
+  } } }),
+};
+
 export const imageTools: Record<string, Run> = {
   "compress-image": (files, p, ctx) => each(files, ctx, async (f) => {
     const img = await load(f, ctx), fmt = p.format === "auto" ? await resolveFormat(f, "auto") : p.format, name = `${stem(f.name)}-compressed.${EXT[fmt] ?? "png"}`;
@@ -183,7 +165,7 @@ export const imageTools: Record<string, Run> = {
     const exifr = (await import("exifr/dist/full.esm.mjs")).default;
     const meta = await exifr.parse(b, { tiff: true, gps: true, xmp: true, iptc: true }).catch(() => null);
     const n = meta ? Object.keys(meta).length : 0;
-    const note = n ? `Removed ${n} metadata field${n === 1 ? "" : "s"}${meta.latitude != null ? ", including GPS location" : ""}.` : "No metadata found.";
+    const note = n ? `Removed ${n} metadata field${n === 1 ? "" : "s"}${meta.latitude != null ? ", including GPS location" : ""}.` : fmt === "jpeg" || fmt === "png" ? "No metadata found." : "Saved without metadata.";
     const png = fmt === "png" ? stripPng(b) : null;
     if (png) return { name: `${stem(f.name)}-clean.png`, type: MIME.png, bytes: png, note };
     const jpg = fmt === "jpeg" && (!meta?.Orientation || meta.Orientation === 1 || meta.Orientation === "Horizontal (normal)") ? stripJpeg(b) : null;
@@ -336,7 +318,7 @@ export const imageTools: Record<string, Run> = {
   "optimize-svg": (files, p, ctx) => each(files, ctx, async (f) => {
     const { optimize } = await import("svgo/browser"), src = new TextDecoder().decode(await bytesOf(f));
     if (!/<svg[\s>]/i.test(src)) throw new Say(`${f.name} is not an SVG file.`);
-    const data = optimize(src, { multipass: p.multipass, floatPrecision: p.precision, plugins: [{ name: "preset-default", params: { overrides: { removeViewBox: false } as any } } as any, ...(p.keepViewBox ? [] : [{ name: "removeViewBox" } as any]), { name: "removeScripts" } as any] }).data;
+    const data = optimize(src, { multipass: p.multipass, floatPrecision: p.precision, plugins: [{ name: "preset-default", params: { overrides: { removeViewBox: false } as any } } as any, ...(p.keepViewBox ? [] : [{ name: "removeViewBox" } as any]), { name: "removeScripts" } as any, scrubSvg as any] }).data;
     return { name: `${stem(f.name)}.min.svg`, type: "image/svg+xml", bytes: new TextEncoder().encode(data) };
   }),
   "image-to-base64": (files, p, ctx) => each(files, ctx, async (f) => {

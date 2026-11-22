@@ -151,17 +151,27 @@ const mul = (m: number[], n: number[]) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0
 // Hands files from one page to the next through IndexedDB, then deletes them.
 const db = () => new Promise<IDBDatabase>((res, rej) => { const r = indexedDB.open("lathe", 1); r.onupgradeneeded = () => r.result.createObjectStore("handoff"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 // Plain buffers, because Safari's private mode refuses to store File objects.
+// Encrypted, with the key in this tab's sessionStorage, so a crash or closed tab leaves nothing readable behind.
+const KEY = "lathe:handoff-key";
+const seal = async (key: CryptoKey, data: ArrayBuffer | Uint8Array<ArrayBuffer>) => { const iv = crypto.getRandomValues(new Uint8Array(12)); return { iv, data: await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data) }; };
 export async function stash(files: File[]) {
-  const items = await Promise.all(files.map(async (f) => ({ name: f.name, type: f.type, lastModified: f.lastModified, data: await f.arrayBuffer() })));
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const items = await Promise.all(files.map(async (f) => ({ meta: await seal(key, new TextEncoder().encode(JSON.stringify({ name: f.name, type: f.type, lastModified: f.lastModified }))), body: await seal(key, await f.arrayBuffer()) })));
+  sessionStorage.setItem(KEY, btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.exportKey("raw", key)))));
   const d = await db();
   await new Promise((res, rej) => { const t = d.transaction("handoff", "readwrite"); t.objectStore("handoff").put(items, "files"); t.oncomplete = res; t.onerror = t.onabort = () => rej(t.error); });
   d.close();
 }
-export async function clearStash() { const d = await db(); await new Promise((res) => { const t = d.transaction("handoff", "readwrite"); t.objectStore("handoff").delete("files"); t.oncomplete = t.onerror = t.onabort = res; }); d.close(); }
+export async function clearStash() { sessionStorage.removeItem(KEY); const d = await db(); await new Promise((res) => { const t = d.transaction("handoff", "readwrite"); t.objectStore("handoff").delete("files"); t.oncomplete = t.onerror = t.onabort = res; }); d.close(); }
 export async function unstash(): Promise<File[]> {
+  // Read first: the page shell clears leftovers as it starts, and must not take the key of a live handoff.
+  const raw = sessionStorage.getItem(KEY); sessionStorage.removeItem(KEY);
   const d = await db();
   const items = await new Promise<any[]>((res, rej) => { const t = d.transaction("handoff", "readwrite"), s = t.objectStore("handoff"), g = s.get("files"); g.onsuccess = () => { s.delete("files"); }; t.oncomplete = () => res(g.result ?? []); t.onerror = t.onabort = () => rej(t.error); });
-  const files = items.map((x) => new File([x.data], x.name, { type: x.type, lastModified: x.lastModified }));
   d.close();
+  if (!raw || !items.length) return [];
+  const key = await crypto.subtle.importKey("raw", Uint8Array.from(atob(raw), (c) => c.charCodeAt(0)), "AES-GCM", false, ["decrypt"]);
+  const open = (x: { iv: Uint8Array<ArrayBuffer>; data: ArrayBuffer }) => crypto.subtle.decrypt({ name: "AES-GCM", iv: x.iv }, key, x.data);
+  const files = await Promise.all(items.map(async (x) => { const m = JSON.parse(new TextDecoder().decode(await open(x.meta))); return new File([await open(x.body)], m.name, { type: m.type, lastModified: m.lastModified }); }));
   return files;
 }

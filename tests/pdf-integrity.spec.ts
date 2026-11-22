@@ -51,6 +51,25 @@ for (const [id, params] of removal) {
     for (const part of parts(await run(page, params))) expect(holds(part, "DIFFSECRET")).toBe(false);
   });
 }
+test("a stray /Encrypt string cannot skip the page check", async ({ page }) => {
+  const forged = Buffer.concat([readFileSync(C("differ.pdf")), Buffer.from("\n% /Encrypt\n")]);
+  await page.goto("/delete-pages");
+  await page.locator("#stage input[type=file]").first().setInputFiles({ name: "forged.pdf", mimeType: "application/pdf", buffer: forged });
+  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#panel > .btn").first()).toBeEnabled({ timeout: 20_000 });
+  expect(holds(bytes(await run(page, { pages: "1" })), "DIFFSECRET")).toBe(false);
+});
+test("signing places the mark on the page the reader shows", async ({ page }) => {
+  await page.goto("/sign-pdf");
+  await page.locator("#stage input[type=file]").first().setInputFiles(C("differ.pdf"));
+  await expect(page.locator(".docpage canvas").first()).toBeVisible({ timeout: 20_000 });
+  const size = await page.evaluate(() => (window as any).__lathe.files?.[0]?.size ?? 0);
+  expect(size).not.toBe(readFileSync(C("differ.pdf")).length);
+});
+test("a page tool still reports restrictions after intake", async ({ page }) => {
+  await load(page, "delete-pages", "owner-only.pdf");
+  expect((await run(page, { pages: "1" })).note).toContain("restrictions");
+});
 test("keep-text redaction removes the page the reader shows", async ({ page }) => {
   await load(page, "redact-pdf", "differ.pdf");
   const r = await run(page, { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
