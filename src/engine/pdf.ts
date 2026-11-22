@@ -93,31 +93,33 @@ async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[]) {
   } finally { undo.forEach((f) => f()); }
 }
 const copy = async (src: PDFDocument, idx: number[]) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx)).forEach((x) => d.addPage(x)); return d; };
-/** Every image, form and pattern stream reachable from a resource dictionary. Fonts are left out: they hold glyph shapes, not page text. */
-function streamsIn(ctx: PDFDocument["context"], root: unknown) {
-  const found = new Set<PDFRef>(), seen = new Set<unknown>(), stack = [root];
+/**
+ * Every stream a page can show: its content, images, forms, patterns, annotation appearances and Type 3 glyphs.
+ * Stops at other pages and parents. Skips ordinary fonts and colour profiles, which hold no page content and are shared by design.
+ */
+function pageStreams(doc: PDFDocument, page: PDFPage) {
+  const found = new Set<PDFRef>(), seen = new Set<unknown>(), skip = ["Parent", "P", "ColorSpace", "Metadata"].map((k) => PDFName.of(k));
+  const stack: unknown[] = [...page.node.entries().filter(([k]) => !skip.includes(k)).map(([, v]) => v), page.node.Resources()];
   while (stack.length) {
     const v = stack.pop();
     if (!v || seen.has(v)) continue;
     seen.add(v);
     if (v instanceof PDFRef) {
-      const o = ctx.lookup(v);
-      if (o instanceof PDFStream && (["Image", "Form"].includes(nameOf(o.dict.lookup(PDFName.of("Subtype")))) || o.dict.has(PDFName.of("PatternType")))) found.add(v);
+      const o = doc.context.lookup(v);
+      if (isPage(o)) continue;
+      if (o instanceof PDFStream) found.add(v);
       stack.push(o);
     } else if (v instanceof PDFArray) stack.push(...v.asArray());
-    else if (v instanceof PDFStream) stack.push(v.dict);
-    else if (v instanceof PDFDict) for (const [k, x] of v.entries()) if (k !== PDFName.of("Font") && k !== PDFName.of("Parent")) stack.push(x);
+    else if (v instanceof PDFDict) {
+      const d = v instanceof PDFStream ? v.dict : v;
+      if (nameOf(d.lookup(PDFName.of("Type"))) === "Font" && nameOf(d.lookup(PDFName.of("Subtype"))) !== "Type3") continue;
+      for (const [k, x] of d.entries()) if (!skip.includes(k)) stack.push(x);
+    } else if (v instanceof PDFStream) stack.push(v.dict);
   }
   return found;
 }
-/**
- * True when a kept page can reach an image, form or pattern used by a redacted page, through its resources or annotations.
- * Such a page is flattened: it might draw only part of a shared image, with the redacted part still in the file.
- */
-function sharesHidden(doc: PDFDocument, page: PDFPage, hidden: Set<PDFRef>) {
-  const looks = (page.node.Annots()?.asArray() ?? []).map((a) => { const o = doc.context.lookup(a); return o instanceof PDFDict ? o.get(PDFName.of("AP")) : undefined; });
-  return [page.node.Resources(), ...looks].some((root) => [...streamsIn(doc.context, root)].some((x) => hidden.has(x)));
-}
+/** A kept page that can reach anything from a redacted page is flattened, because it might show only part of it. */
+const sharesHidden = (doc: PDFDocument, page: PDFPage, hidden: Set<PDFRef>) => [...pageStreams(doc, page)].some((x) => hidden.has(x));
 
 const render = (ctx: Ctx, bytes: Uint8Array, key: string, page: number, dpi: number, gray = false) => ctx.main<ImageBitmap>("render", { doc: new Blob([bytes as BlobPart]), key, page, dpi, gray });
 const toImg = (b: ImageBitmap) => { const c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(b, 0, 0); return g.getImageData(0, 0, c.width, c.height); };
@@ -247,7 +249,8 @@ async function markdownPdf(md: string, p: any) {
     i: await doc.embedFont(serif ? StandardFonts.TimesRomanItalic : StandardFonts.HelveticaOblique), c: await doc.embedFont(StandardFonts.Courier),
   };
   let page = doc.addPage([PW, PH]), y = PH - M;
-  const clean = (t: string) => t.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\t/g, "  ").replace(/→/g, "->").replace(/[^\x20-\x7e\xa0-\xff–—‘’“”•…€]/g, "?");
+  const entities: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
+  const clean = (t: string) => t.replace(/&(?:amp|lt|gt|quot|#39);/g, (m) => entities[m]).replace(/\t/g, "  ").replace(/\u2192/g, "->").replace(/[^\x20-\x7e\xa0-\xff\u2013\u2014\u2018\u2019\u201c\u201d\u2022\u2026\u20ac]/g, "?");
   const need = (h: number) => { if (y - h < M) { page = doc.addPage([PW, PH]); y = PH - M; } };
   type Run = { t: string; f: PDFFont; c?: boolean; href?: string };
   const runs = (toks: any[], f: PDFFont = F.r, href?: string): Run[] => (toks ?? []).flatMap((x) => {
@@ -514,7 +517,7 @@ export const pdfTools: Record<string, Run> = {
     const regions: any[] = p.regions ?? [];
     if (!regions.length) throw new Say("Draw at least one box over what you want removed.");
     const { doc, bytes } = await open(f), d = await PDFDocument.create(), n = doc.getPageCount();
-    const hidden = new Set(regions.flatMap((r) => [...streamsIn(doc.context, doc.getPage(r.page).node.Resources())]));
+    const hidden = new Set(regions.flatMap((r) => [...pageStreams(doc, doc.getPage(r.page))]));
     for (let i = 0; i < n; i++) {
       const here = regions.filter((r) => r.page === i);
       if (!here.length && !sharesHidden(doc, doc.getPage(i), hidden)) { const [pg] = await copyOnly(d, doc, [i]); d.addPage(pg); continue; }

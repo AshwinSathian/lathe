@@ -10,9 +10,11 @@ for (const f of ["vision_wasm_internal.js", "vision_wasm_internal.wasm"]) copy(`
 copy("onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.mjs", "ort/ort-wasm-simd-threaded.asyncify.mjs");
 const model = `${out}/mediapipe/blaze_face_short_range.tflite`;
 const MODEL_SHA256 = "b4578f35940bf5a1a655214a1cce5cab13eba73c1297cd78e1a04c2380b0152f";
-if (!existsSync(model)) {
+const matches = (bytes) => createHash("sha256").update(bytes).digest("hex") === MODEL_SHA256;
+if (!existsSync(model) || !matches(readFileSync(model))) {
   const r = await fetch("https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite");
   if (!r.ok) throw new Error(`Face model download failed: ${r.status}`);
-  writeFileSync(model, Buffer.from(await r.arrayBuffer()));
+  const bytes = Buffer.from(await r.arrayBuffer());
+  if (!matches(bytes)) throw new Error("Face model does not match its pinned SHA-256.");
+  writeFileSync(model, bytes);
 }
-if (createHash("sha256").update(readFileSync(model)).digest("hex") !== MODEL_SHA256) throw new Error("Face model does not match its pinned SHA-256.");

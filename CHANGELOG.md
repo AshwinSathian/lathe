@@ -2,6 +2,17 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-11-22
+
+### Security
+
+- Redaction now compares everything a page can show, including shared content streams, annotation appearances and Type 3 fonts. A kept page that shares any of it is flattened
+
+### Fixed
+
+- Markdown to PDF no longer decodes escaped HTML entities twice
+- The face model is checked against its SHA-256 before it is written to disk
+
 ## [0.1.0] - 2026-11-22
 
 First public release, with 60 tools and 22 preset format conversions.
@@ -24,4 +35,5 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[0.1.1]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.1
 [0.1.0]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.0

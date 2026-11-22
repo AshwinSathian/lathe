@@ -89,6 +89,34 @@ test("a crafted Markdown link cannot inject PDF objects", async ({ page }) => {
   const s = plain(out); expect(s).not.toMatch(/\/S\s*\/JavaScript/); expect(s).not.toMatch(/javascript:/i);
   const d = await PDFDocument.load(out); expect(d.getPageCount()).toBe(1);
 });
+test("redaction flattens a kept page that reuses the redacted page's content stream", async ({ page }) => {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
+  a.drawText("TOPSECRET", { x: 20, y: 200, size: 20, font: f }); await d.flush();
+  b.node.set(PDFName.of("Contents"), a.node.get(PDFName.of("Contents"))); b.node.set(PDFName.of("Resources"), a.node.get(PDFName.of("Resources")));
+  const out = await run(page, "redact-pdf", file("same.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  expect(hasSecret(out)).toBe(false);
+});
+test("redaction flattens a kept page that shares an annotation appearance", async ({ page }) => {
+  const d = await PDFDocument.create(), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
+  const look = d.context.register(d.context.stream("BT (HIDDENAP) Tj ET", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 50] }));
+  for (const p of [a, b]) p.node.addAnnot(d.context.register(d.context.obj({ Type: "Annot", Subtype: "Stamp", Rect: [0, 0, 50, 50], AP: { N: look } })));
+  const out = await run(page, "redact-pdf", file("ap.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  expect(plain(out)).not.toContain("HIDDENAP");
+});
+test("redaction flattens a kept page that shares a Type 3 font", async ({ page }) => {
+  const d = await PDFDocument.create(), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
+  const glyph = d.context.register(d.context.stream("0 0 d0 (HIDDENGLYPH) pop", {}));
+  const font = d.context.register(d.context.obj({ Type: "Font", Subtype: "Type3", FontBBox: [0, 0, 10, 10], FontMatrix: [1, 0, 0, 1, 0, 0], CharProcs: { a: glyph }, Encoding: { Type: "Encoding", Differences: [97, PDFName.of("a")] }, FirstChar: 97, LastChar: 97, Widths: [10] }));
+  for (const p of [a, b]) p.node.Resources().set(PDFName.of("Font"), d.context.obj({ T3: font }));
+  const out = await run(page, "redact-pdf", file("t3.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  expect(plain(out)).not.toContain("HIDDENGLYPH");
+});
+test("redaction keeps pages selectable when they share only an ordinary font", async ({ page }) => {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica);
+  for (const x of ["TOPSECRET", "KEPT"]) d.addPage([300, 300]).drawText(x, { x: 20, y: 200, size: 20, font: f });
+  const out = await run(page, "redact-pdf", file("font.pdf", Buffer.from(await d.save())), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  expect(hasSecret(out)).toBe(false); expect(plain(out)).toMatch(/4b455054/i);
+});
 test("metadata wipe reaches XMP on pages and images", async ({ page }) => {
   const d = await PDFDocument.create(), p = d.addPage([200, 200]), xmp = d.context.register(d.context.stream("<x:xmpmeta>HIDDENNAME</x:xmpmeta>", { Type: "Metadata", Subtype: "XML" }));
   p.node.set(PDFName.of("Metadata"), xmp); p.node.set(PDFName.of("PieceInfo"), d.context.obj({ App: { Private: PDFString.of("HIDDENNAME") } }));
