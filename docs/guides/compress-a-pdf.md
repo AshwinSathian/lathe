@@ -14,7 +14,7 @@ The target applies to where each image is actually drawn. A small logo and a ful
 
 ## What is left alone
 
-Lathe only re-encodes images that survive the round trip exactly. CMYK, spot colours, inverted images, masks, indexed colour and premultiplied transparency are kept byte for byte, because converting them can shift or invert colours. A PDF made mostly of those will shrink less.
+Lathe skips images that JPEG conversion could misread. CMYK, spot colours, inverted images, masks, indexed colour and premultiplied transparency keep their pixel values, because converting them can shift or invert colours. A PDF made mostly of those will shrink less.
 
 ## If the file does not get smaller
 

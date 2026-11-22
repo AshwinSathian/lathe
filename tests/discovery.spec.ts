@@ -1,7 +1,7 @@
 // Search engines and AI answers should find a useful, distinct page for each conversion.
 import { test, expect } from "./fixture";
 import { tools } from "../src/data/tools";
-import { docPages } from "../src/data/docs";
+import { docLabels, docPages } from "../src/data/docs";
 
 const conversions = tools.filter((t) => t.run === "convert-image");
 const text = (html: string) => (html.match(/<main[\s\S]*?<\/main>/)?.[0] ?? html).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").toLowerCase();
@@ -103,4 +103,8 @@ test("every tool has its own social card", async ({ request }) => {
 test("the sitemap lists every page with a last-modified date", async ({ request }) => {
   const map = await (await request.get("/sitemap-0.xml")).text();
   for (const p of pageList) expect(map, p).toMatch(new RegExp(`<loc>${site}${p === "/" ? "/" : p}</loc><lastmod>20`));
+});
+
+test("every doc has a sidebar label", () => {
+  for (const d of docPages) expect(docLabels[d.slug], d.slug).toBeTruthy();
 });

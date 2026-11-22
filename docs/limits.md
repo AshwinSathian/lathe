@@ -1,6 +1,6 @@
 # Limits and measured performance
 
-Lathe runs on your device, so its limits come from your browser's memory and from 32-bit WebAssembly, which can address at most 4 GB. There is no file size or usage limit imposed by the site.
+Lathe runs on your device, so its limits come from your browser's memory and from 32-bit WebAssembly, which can address at most 4 GB. The site sets no usage limit. Image tools enforce the pixel limits below.
 
 ## Measured results
 
@@ -26,6 +26,8 @@ Measured on 2026-11-22 with Lathe's release candidate in headless Chromium on a 
 ## Hard limits
 
 - **Image size:** Lathe refuses images over 268 megapixels before decoding them.
+- **Resize output:** at most 120 megapixels.
+- **AI upscaling input:** at most 4 megapixels.
 - **WebP export:** a 100 MP image failed to encode on the test machine. Resize it first, or export PNG.
 - **HEIC export:** needs a browser with an HEVC encoder. It is tested in Safari's engine on macOS.
 - **Text in generated PDFs:** Markdown to PDF and Fill PDF use standard PDF fonts, which cover Western European characters. They refuse other scripts and name the characters instead of printing `?`.

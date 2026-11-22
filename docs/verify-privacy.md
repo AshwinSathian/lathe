@@ -12,7 +12,7 @@ You do not have to take Lathe's word for it. Your browser can show every request
 
 ## Run it with no network
 
-1. Use a tool once while online, so your browser saves it.
+1. Open a tool, reload the page and run it once while online, so your browser saves it.
 2. Turn off Wi-Fi and mobile data.
 3. Reload the page and run the tool again.
 
@@ -22,15 +22,15 @@ A tool that works with no connection cannot be sending your file anywhere. See [
 
 The site sends a `Content-Security-Policy` header that tells your browser which addresses a page may contact. To read it, select the first request in the Network tab and open its response headers.
 
-On every page except two, `connect-src` is `'self' blob: data:`, so the page can only contact this site. [Remove background](https://lathe.ashwinsathian.com/remove-background) and [Upscale image](https://lathe.ashwinsathian.com/upscale-image) also allow jsDelivr and Hugging Face, because their models are too large to host here. On those two pages the download is a request for a model file, and each file is checked against a [pinned SHA-256](ai-models.md).
+On every page except two, `connect-src` is `'self' blob: data:`, so the page can only contact this site. [Remove background](https://lathe.ashwinsathian.com/remove-background) and [Upscale image](https://lathe.ashwinsathian.com/upscale-image) also allow jsDelivr and Hugging Face, because their models are too large to host here. On those two pages the download is a request for a model file, and each file is [checked against a pinned hash](ai-models.md).
 
 ## Inspect the code
 
-Lathe is [open source under the MIT licence](https://github.com/AshwinSathian/lathe). Each release publishes the built site with an SBOM and signed build provenance, so you can match what you run to the source. For the strongest guarantee, [host it yourself](self-hosting.md) on a network with no outbound access.
+Lathe is [open source under the MIT licence](https://github.com/AshwinSathian/lathe). Each release publishes a separately built archive with an SBOM and signed provenance. These do not prove what the live site is serving. For the strongest guarantee, [host it yourself](self-hosting.md) on a network with no outbound access.
 
 ## How the project tests this
 
-An automated test runs 80 of the 82 tool pages in Chromium under network capture, using the real AI models. It fails if any request is not `GET` or `HEAD`, carries a body, or goes to a third-party address that is not a pinned model file. The other two pages export HEIC and need an HEVC encoder that the test browser does not have. The test is in [`tests/network.spec.ts`](../tests/network.spec.ts).
+A local test runs 80 of the 82 tool pages in Chromium under network capture, using the real AI models. CI runs 75 of them without models. It fails if any request is not `GET` or `HEAD`, carries a body, or goes to a third-party address outside the pinned model files and Hugging Face's storage hosts. The other two pages export HEIC and need an HEVC encoder, so a separate test runs them under the same capture in WebKit on macOS. The test is in [`tests/network.spec.ts`](../tests/network.spec.ts).
 
 ## What this cannot prove
 

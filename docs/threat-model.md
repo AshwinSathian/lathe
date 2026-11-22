@@ -6,12 +6,12 @@ Lathe's central promise is that your file stays on your device. This page sets o
 
 | Risk | Control | Checked by |
 |---|---|---|
-| A tool sends a file somewhere | No backend exists. The CSP limits `connect-src` to this site on every page except Remove background and Upscale image, which may also reach jsDelivr and Hugging Face to download a model. The worker that holds your files has no third-party access on any page | `no tool sends a file anywhere` and `supply-chain` tests |
+| A tool sends a file somewhere | No backend exists. The CSP limits `connect-src` to this site on every page except Remove background and Upscale image, which may also reach jsDelivr and Hugging Face to download a model. The engine worker has no third-party access on any page. On those two tools the page also holds your file and can reach those hosts | `no tool sends a file anywhere` and `supply-chain` tests |
 | A crafted file runs script | Untrusted text goes through `textContent`. SVGs are drawn through `<img>` after scripts are removed. `script-src` has no `unsafe-inline` | CSP, SVG optimiser test |
 | The site is framed to trick you | `frame-ancestors 'none'` and `X-Frame-Options: DENY` | `security headers are present` test |
-| Redacted text can be copied back | Redacted pages are rebuilt from pixels. Links to removed pages are dropped, and every page is flattened by default. With that setting off, kept pages that reuse any content from a redacted page are still flattened | `redaction` tests |
+| Redacted text can be copied back | Redacted pages are rebuilt from pixels. Links to removed pages are dropped, and every page is flattened by default. With that setting off, kept pages that reuse an image, form, pattern or annotation from a redacted page are still flattened | `redaction` tests |
 | Photos reveal a location | EXIF, XMP, IPTC, comments, thumbnails and data appended after the image are removed | `metadata removal strips GPS` test |
-| A model or runtime changes upstream | Every model file, the ONNX runtime and the OCR data are pinned to a SHA-256 and checked before use, including when read back from the browser cache | `supply-chain` tests, `src/engine/pins.json` |
+| A model or runtime changes upstream | Hugging Face model files are checked against a SHA-256 on download and on every cache read. The ONNX runtime uses subresource integrity. OCR data and the face model are checked at build, then trusted from this site | `supply-chain` tests, `src/engine/pins.json` |
 | A compromised build action | GitHub Actions are pinned to commit hashes, with read-only tokens by default | `.github/workflows` |
 
 ## What Lathe cannot protect against
@@ -35,4 +35,4 @@ Lathe's central promise is that your file stays on your device. This page sets o
 | Tool choices such as sliders and menus. Nothing you type | `localStorage` | Until cleared |
 | A file passed to the next tool, encrypted with AES-GCM. The key is in that tab's `sessionStorage` | IndexedDB | Until the next page opens it |
 
-A file is written to IndexedDB only when you pick the next tool. If that navigation is interrupted, the next Lathe page you open deletes it. If the tab is closed first, the key is gone and what remains cannot be read.
+A file is written to IndexedDB only when you pick the next tool. If that navigation is interrupted, the next Lathe page you open deletes it. Closing the tab normally discards the key, though a browser's session restore may bring it back. The encrypted data stays until another Lathe page opens.

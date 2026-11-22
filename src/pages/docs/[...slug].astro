@@ -1,6 +1,6 @@
 ---
 import Base from "../../layouts/Base.astro";
-import { docPages, docSections, type DocPage } from "../../data/docs";
+import { docLabels, docPages, docSections, type DocPage } from "../../data/docs";
 import { AUTHOR, SITE, WEBSITE, renderDoc } from "../../data/site";
 export const getStaticPaths = () => docPages.map((d) => ({ params: { slug: d.slug }, props: { d } }));
 const { d } = Astro.props as { d: DocPage };
@@ -15,7 +15,7 @@ if (qa.length) ld.push({ "@context": "https://schema.org", "@type": "FAQPage", m
   <div class="wrap docs">
     <nav class="docs-nav" aria-label="Documentation">
       <a class="docs-home" href="/docs">All docs</a>
-      {docSections.map((s) => <div><h2>{s}</h2><ul>{docPages.filter((x) => x.section === s).map((x) => <li><a href={`/docs/${x.slug}`} aria-current={x.slug === d.slug ? "page" : undefined}>{x.title.replace(/^Lathe /, "").replace(/ Lathe$/, "")}</a></li>)}</ul></div>)}
+      {docSections.map((s) => <div><h2>{s}</h2><ul>{docPages.filter((x) => x.section === s).map((x) => <li><a href={`/docs/${x.slug}`} aria-current={x.slug === d.slug ? "page" : undefined}>{docLabels[x.slug]}</a></li>)}</ul></div>)}
     </nav>
     <article class="prose doc">
       <Fragment set:html={html} />

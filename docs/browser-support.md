@@ -4,12 +4,13 @@ The automated suite runs in Chromium, Firefox and WebKit builds from Playwright.
 
 | Capability | Chromium | Firefox | WebKit / Safari |
 |---|---|---|---|
-| All non-AI tools | Tested | Tested | Tested |
+| Non-AI tools, except GIF to frames | Tested | Tested | Tested |
+| GIF to frames | Tested | Not tested | Not tested |
 | HEIC import | Tested | Tested | Tested |
 | HEIC export | Needs a build with an HEVC encoder | Skipped unless an encoder exists | Tested on macOS |
 | GPU background removal | Tested on Apple Metal | Not tested | Not tested |
 | CPU AI tools | Tested | Not tested | Not tested |
-| A tool you have used, offline | Tested | Not tested | Not tested |
+| A tool reloaded and run online, then offline | Tested | Not tested | Not tested |
 | A tool you have not used, offline | Shows a notice | Not tested | Not tested |
 
 Playwright's Chromium has no HEVC encoder. Branded Chrome and Edge may have one, depending on the operating system and hardware. Lathe asks the browser at run time and shows a message if it cannot encode.

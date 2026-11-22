@@ -2,7 +2,7 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.0.0] - 2026-11-23
 
 ### Added
 
@@ -184,6 +184,7 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[1.0.0]: https://github.com/AshwinSathian/lathe/releases/tag/v1.0.0
 [0.1.9]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.9
 [0.1.8]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.8
 [0.1.7]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.7

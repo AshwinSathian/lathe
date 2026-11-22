@@ -136,3 +136,14 @@ Baseline gates: `check`, `check:docs`, `npm audit` and `build` pass. Playwright:
 ## Test-run disclosure
 
 One security probe opened a WebSocket to `wss://attacker.hf.co/`, which the local mock did not intercept, so the handshake may have left the machine. It carried no file data, and the probe was removed.
+
+## Resolution at v1.0.0
+
+Every blocker and major item above was fixed, narrowed or documented in slices 1 to 15 of [the plan](v1-plan.md), with tests in `tests/`. Items that stay open:
+
+- Real phones, VoiceOver, TalkBack, and files from Word, LibreOffice, InDesign or a physical scanner have not been tested. See the [device checklist](device-checklist.md).
+- Real iPhone HDR, Live Photo and burst files have not been tested.
+- Integrity fixes were checked with independent readers in Chromium. Firefox and WebKit run the repo's own output tests.
+- Keep-text redaction remains best effort and is labelled as weaker.
+- Home page mobile Lighthouse varied across three lab runs: performance 76, 100 and 100.
+- A pre-publication claim audit of about 120 statements found 18 that were false or overstated. All 18 were corrected.

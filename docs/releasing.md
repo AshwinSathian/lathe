@@ -41,7 +41,7 @@ If a release exposed user data, roll back first, then follow [the security polic
 
 ## Updating a pinned download
 
-`src/engine/pins.json` records the SHA-256 of every model file, the ONNX runtime and the OCR data. The build fails if the installed ONNX runtime no longer matches. After a dependency update, recompute the hash, update the file and run the model tests.
+`src/engine/pins.json` records the hashes of the Hugging Face model files, the ONNX runtime and the OCR data. The build fails if the installed ONNX runtime no longer matches. After a dependency update, recompute the hash, update the file and run the model tests.
 
 ## Monitoring
 

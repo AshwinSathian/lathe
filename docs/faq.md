@@ -4,7 +4,7 @@
 
 ### Does Lathe upload my files?
 
-No. Every tool runs in your browser with WebAssembly, WebGL and Web Workers, and the site has no upload endpoint. An automated test runs 80 of the 82 tool pages under network capture and fails on any request that carries data. You can [check it yourself](verify-privacy.md) in two minutes.
+No. Every tool runs in your browser with WebAssembly, WebGL and Web Workers, and the site has no upload endpoint. A local test runs 80 of the 82 tool pages with real models under network capture and fails on any request that carries data. CI runs 75 of them without models. You can [check it yourself](verify-privacy.md) in two minutes.
 
 ### Is it safe for a passport, contract or medical record?
 
@@ -22,7 +22,7 @@ Your slider and menu choices, the app's code, and any AI models you chose to dow
 
 ### Does blacking out text in a PDF really remove it?
 
-Only if the tool removes the text underneath. Many editors draw a box that can be copied straight through. Lathe's [Redact PDF](guides/redact-a-pdf.md) rebuilds every page from pixels by default, so the original text, layers, comments and metadata are gone from the output.
+Only if the tool removes the text underneath. Many editors draw a box that can be copied straight through. Lathe's [Redact PDF](guides/redact-a-pdf.md) rebuilds every page from pixels by default, so the original text, layers and metadata are not in the output as PDF data. Anything visible outside your boxes stays visible in the page image.
 
 ### Can Lathe open a password-protected PDF?
 
@@ -54,7 +54,7 @@ Yes. There is no account, watermark, paid tier or limit on how many files you pr
 
 ### Does it work offline?
 
-Yes, for any tool you have already used on that device. See [offline use](offline.md).
+Yes, after you reload a tool's page and run it once while online. Each release clears saved tools. See [offline use](offline.md).
 
 ### Which browsers does it support?
 

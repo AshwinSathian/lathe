@@ -16,7 +16,7 @@ Check any photo first with the [image metadata viewer](https://lathe.ashwinsathi
 
 ## What Lathe removes
 
-EXIF, GPS, XMP, IPTC, comments, embedded thumbnails and data appended after the image. For JPEG and PNG, the compressed pixels are left untouched, so quality does not change. A JPEG that needs its rotation applied is re-encoded so it still displays upright. Other formats are saved again without metadata.
+EXIF, GPS, XMP, IPTC, comments, embedded thumbnails and data appended after the image. For JPEG and PNG, the compressed pixels are left untouched, so quality does not change. A JPEG that needs its rotation applied is re-encoded so it still displays upright. Other formats are saved again without metadata. HEIC needs a browser with an HEVC encoder, so elsewhere convert it to JPG instead. JPEG and PNG keep their colour profile, which can name a device or app.
 
 ## Photos inside PDFs
 

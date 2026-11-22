@@ -19,7 +19,7 @@ npm run dev        # http://localhost:4340
 ```bash
 npm run check      # types: TypeScript 7 for .ts, TypeScript 6 for .astro
 npm run build
-npm test           # every tool in Chromium, Firefox and WebKit
+npm test           # non-AI tools in all three engines, except GIF to frames; AI tools in Chromium
 npm run docs       # regenerate the tool list and licence notices
 ```
 

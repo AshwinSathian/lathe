@@ -16,7 +16,7 @@ The note is part of the output. A tool uses it to say that a digital signature n
 
 ## Work with several files
 
-Tools that accept several files process them one at a time. If one file is damaged, the others still finish, and the result names the file that failed. **Download all as ZIP** collects the finished files.
+Tools that accept several files process them one at a time. In batch tools, if one file is damaged the others still finish, and the result names the file that failed. Tools that combine files, such as Merge, stop and write nothing. **Download all as ZIP** collects the finished files.
 
 ## Cancel a job
 

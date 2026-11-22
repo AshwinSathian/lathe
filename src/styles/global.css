@@ -218,7 +218,7 @@ dialog.palette::backdrop { background: rgba(8,14,28,.5); backdrop-filter: blur(3
 .docs-nav a[aria-current=page] { color: var(--ink); background: var(--sunk); font-weight: 600; }
 .docs-home { font-weight: 650; text-decoration: none; }
 .prose.doc { padding-block: 0; max-width: 74ch; min-width: 0; }
-.doc h2 { scroll-margin-top: 14px; } .doc h3 { margin-top: 22px; font-size: var(--step-0); font-weight: 650; }
+.doc p + p, .doc ul + p, .doc ol + p, .doc-table + p { margin-top: 12px; } .doc h2 { scroll-margin-top: 14px; margin-top: 30px; } .doc ul, .doc ol { margin-block: 8px; } .doc h3 { margin-top: 22px; font-size: var(--step-0); font-weight: 650; }
 .doc pre { overflow-x: auto; padding: 12px 14px; border-radius: 6px; background: var(--sunk); font-size: var(--step--1); line-height: 1.5; }
 .doc :not(pre) > code { padding: 1px 4px; border-radius: 3px; background: var(--sunk); font-size: .9em; overflow-wrap: anywhere; }
 .doc-table { overflow-x: auto; margin-block: 14px; }
@@ -231,6 +231,7 @@ dialog.palette::backdrop { background: rgba(8,14,28,.5); backdrop-filter: blur(3
 .docs-index section { margin-top: 30px; } .docs-index h2 { font-size: var(--step-1); font-weight: 680; margin-bottom: 8px; }
 .docs-index ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 2px 28px; }
 .docs-index li { display: grid; gap: 2px; padding: 10px 0; border-top: 1px solid var(--line); } .docs-index li a { font-weight: 620; text-decoration: none; } .docs-index li a:hover { color: var(--act); } .docs-index li span { color: var(--soft); font-size: var(--step--1); }
+.notes article > h2:not(:first-child) { margin-top: 34px; }
 .facts { display: grid; margin: 8px 0 22px; max-width: 66ch; } .facts div { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 6px 0; border-top: 1px solid var(--line); font-size: var(--step--1); } .facts dt { font-weight: 620; } .facts dd { margin: 0; color: var(--soft); overflow-wrap: anywhere; }
 .about { padding-block: 30px 8px; max-width: 900px; margin-inline: 0; } .about h2 { font-size: var(--step-2); font-weight: 700; letter-spacing: -.02em; margin-bottom: 8px; } .about p { color: var(--soft); max-width: 72ch; }
 .guides { list-style: none; padding: 0; margin: 14px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 2px 24px; } .guides a { display: block; padding: 6px 0; }

@@ -13,7 +13,7 @@ To redact a PDF safely, the text under the black box must be removed from the fi
 
 ## What full flatten removes
 
-With full flatten, the output holds one image per page and nothing else from the source. An automated test confirmed these were gone, using five independent PDF readers: visible text, hidden layers, annotations, form values, attachments, bookmarks, named destinations, JavaScript, XMP and document metadata, and text from earlier revisions.
+With full flatten, the output holds one image per page and no other data from the source. A manual review with five independent PDF readers found these gone as PDF data: text, hidden layers, annotations, form values, attachments, bookmarks, named destinations, JavaScript, XMP and document metadata, and text from earlier revisions. Anything visible on the page outside your boxes, including form values and comments, stays visible in the page image, so mark those too.
 
 The trade-off is that text is no longer selectable. Run [OCR PDF](https://lathe.ashwinsathian.com/ocr-pdf) afterwards if you need it searchable, and check that the OCR did not read anything you meant to hide.
 

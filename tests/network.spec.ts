@@ -59,3 +59,14 @@ test("no tool sends file data, and third parties see only pinned downloads", asy
   if (withModels) expect(third.some((u) => u.includes("huggingface.co"))).toBe(true);
   console.log(`network: ${done.length} tools ran, skipped: ${skipped.join(", ") || "none"}, third-party requests: ${third.length}`);
 });
+
+for (const [id, file] of [["jpg-to-heic", "photo.jpg"], ["png-to-heic", "photo.png"]]) test(`${id} sends nothing where an HEVC encoder exists`, async ({ page, baseURL }) => {
+  await page.goto(`/${id}`);
+  test.skip(!(await hevc(page)), "Needs a browser with an HEVC encoder");
+  const origin = new URL(baseURL).origin, bad: string[] = [];
+  page.on("request", (r) => { const url = r.url(); if (url.startsWith("blob:") || url.startsWith("data:")) return; if (!["GET", "HEAD"].includes(r.method()) || r.postDataBuffer() || new URL(url).origin !== origin) bad.push(`${r.method()} ${url}`); });
+  await page.locator("#stage input[type=file]").first().setInputFiles(F(file));
+  const go = page.locator("#panel > .btn").first(); await expect(go).toBeEnabled({ timeout: 30_000 }); await go.click();
+  await expect(page.locator("#panel .results a[download]").first()).toBeVisible({ timeout: 60_000 });
+  expect(bad).toEqual([]);
+});

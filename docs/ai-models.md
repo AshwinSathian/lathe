@@ -15,10 +15,12 @@ Lathe's AI tools run on your device. The model is downloaded to your browser, an
 
 1. The tool asks before its first download and states the size.
 2. The page fetches the file from a commit-pinned address.
-3. The engine worker computes its SHA-256 and compares it with the value in [`src/engine/pins.json`](../src/engine/pins.json). A file that does not match is refused.
-4. A verified file is cached. It is checked again every time it is read, so a changed cache entry is discarded.
+3. For Hugging Face files, the engine worker computes the SHA-256 and compares it with [`src/engine/pins.json`](../src/engine/pins.json). A file that does not match is refused.
+4. A verified file is cached and checked again on every read, so a changed cache entry is discarded.
 
-The ONNX runtime is 26 MB, over the host's limit per file, so it comes from jsDelivr with a subresource integrity check. The worker that holds your files cannot reach any third-party host, because its Content Security Policy allows only this site.
+OCR data and the face model are checked against their pins when the site is built, then served by this site without a further check in your browser.
+
+The ONNX runtime is 26 MB, over the host's limit per file, so it comes from jsDelivr with a subresource integrity check. The engine worker cannot reach any third-party host, because its Content Security Policy allows only this site. On Remove background and Upscale image, the page also holds your file and can reach those two hosts.
 
 ## What AI tools get wrong
 
