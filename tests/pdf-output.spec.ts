@@ -90,3 +90,27 @@ for (const file of ["dmg_noxref.pdf", "dmg_badoffset.pdf"]) test(`repair recover
   const { bytes, note } = await run(page, "repair-pdf", C(file)), n = (await PDFDocument.load(bytes)).getPageCount();
   expect(n).toBeGreaterThan(0); expect(note).toContain(`${n} page`);
 });
+
+const hiddenField = async () => {
+  const d = await PDFDocument.create(), pg = d.addPage([400, 400]), f = d.getForm().createTextField("secret"); f.setText("HIDDENFIELDVALUE"); f.addToPage(pg, { x: 40, y: 200, width: 200, height: 30 });
+  f.acroField.getWidgets()[0].dict.set(PDFName.of("F"), d.context.obj(2));
+  return Buffer.from(await d.save());
+};
+test("flatten does not reveal a hidden form field", async ({ page }) => {
+  const { bytes } = await run(page, "flatten-pdf", pdf("hidden.pdf", await hiddenField()));
+  expect((await words(page, bytes)).map((w) => w.s).join(" ")).not.toContain("HIDDENFIELDVALUE");
+});
+test("fill and flatten does not reveal a hidden form field", async ({ page }) => {
+  await page.goto("/fill-pdf");
+  await page.locator("#stage input[type=file]").first().setInputFiles(pdf("hidden.pdf", await hiddenField()));
+  await expect(page.locator("#panel > .btn").first()).toBeEnabled({ timeout: 20_000 });
+  await page.evaluate(() => { (window as any).__lathe.params.flatten = true; });
+  await page.locator("#panel > .btn").first().click();
+  await expect(page.locator("#panel .results h2, #panel .alert").first()).toBeVisible({ timeout: 30_000 });
+  const b64 = await page.evaluate(() => { const b = (window as any).__lathe.outs[0].bytes; let s = ""; for (let i = 0; i < b.length; i += 32768) s += String.fromCharCode(...b.subarray(i, i + 32768)); return btoa(s); });
+  expect((await words(page, Buffer.from(b64, "base64"))).map((w) => w.s).join(" ")).not.toContain("HIDDENFIELDVALUE");
+});
+for (const [id, params] of [["flatten-pdf", {}], ["resize-pdf", { size: "a4" }], ["n-up-pdf", { n: "2" }], ["booklet-pdf", {}]] as const) test(`${id} does not reveal an annotation on a hidden layer`, async ({ page }) => {
+  const { bytes } = await run(page, id, C("oc-annot.pdf"), params);
+  expect((await words(page, bytes)).map((w) => w.s).join(" ")).not.toContain("VISIBLE-ANNOT-TEXT");
+});

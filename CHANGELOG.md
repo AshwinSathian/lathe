@@ -17,7 +17,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Compress PDF no longer inverts or recolours CMYK, spot-colour and `/Decode` images, and sizes each image by where it is drawn
 - Resize, N-up and Booklet keep cropped and rotated pages on the sheet, with filled-in form values
 - Blank page removal only takes pages with no marks at all, and names them
-- Flatten keeps hidden annotations hidden and keeps annotations it cannot bake in
+- Flatten keeps hidden annotations, hidden form fields and hidden layers hidden, and keeps annotations it cannot bake in
 - Images to PDF keeps a PNG lossless and a JPEG's colour profile
 - Compare finds faint changes and text changes, and states the resolution it checked
 - Repair recovers more damaged files and reports the page count

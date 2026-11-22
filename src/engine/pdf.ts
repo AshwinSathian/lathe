@@ -377,6 +377,21 @@ async function shrinkImages(doc: PDFDocument, dpi: number, q: number, ctx: Ctx) 
   return changed;
 }
 
+/** Whether optional content shows in the default view. Null means Lathe cannot tell, for example with a visibility expression. */
+function layerShown(doc: PDFDocument, oc: unknown): boolean | null {
+  const d = doc.context.lookup(oc as PDFRef);
+  if (!d) return true;
+  if (!(d instanceof PDFDict)) return null;
+  const props = doc.catalog.lookup(PDFName.of("OCProperties")), cfg = props instanceof PDFDict ? props.lookup(PDFName.of("D")) : null;
+  const listed = (k: string, ref: unknown) => { const a = cfg instanceof PDFDict ? cfg.lookup(PDFName.of(k)) : null; return a instanceof PDFArray && a.asArray().includes(ref as PDFObject); };
+  const one = (ref: unknown) => (listed("OFF", ref) ? false : cfg instanceof PDFDict && nameOf(cfg.lookup(PDFName.of("BaseState"))) === "OFF" ? listed("ON", ref) : true);
+  if (nameOf(d.lookup(PDFName.of("Type"))) === "OCG") return one(oc);
+  if (nameOf(d.lookup(PDFName.of("Type"))) !== "OCMD" || d.has(PDFName.of("VE"))) return null;
+  const g = d.get(PDFName.of("OCGs")), list = g instanceof PDFRef && !(doc.context.lookup(g) instanceof PDFArray) ? [g] : (doc.context.lookup(g) as PDFArray)?.asArray?.() ?? [];
+  if (!list.length) return true;
+  const on = list.map(one), policy = nameOf(d.lookup(PDFName.of("P"))) || "AnyOn";
+  return policy === "AllOn" ? on.every(Boolean) : policy === "AnyOff" ? on.some((x) => !x) : policy === "AllOff" ? on.every((x) => !x) : on.some(Boolean);
+}
 /**
  * Bakes annotation appearances into page content. Hidden annotations stay out of the page.
  * One with no appearance to bake is kept as it is, and the number kept is returned.
@@ -390,10 +405,16 @@ function flattenAnnots(doc: PDFDocument) {
       const a = annots.lookup(i); if (!(a instanceof PDFDict)) continue;
       if (numOf(a, "F") & 0b100010) continue; // Hidden or NoView
       const keep = () => { if (nameOf(a.lookup(PDFName.of("Subtype"))) !== "Widget") kept.push(annots.get(i)); };
+      const shown = a.has(PDFName.of("OC")) ? layerShown(doc, a.get(PDFName.of("OC"))) : true;
+      if (shown === false) continue;
+      if (shown === null) { keep(); continue; } // Never bake in what might be hidden.
       const ap = a.lookup(PDFName.of("AP")); if (!(ap instanceof PDFDict)) { keep(); continue; }
       let n: any = ap.get(PDFName.of("N")), obj = doc.context.lookup(n);
       if (obj instanceof PDFDict && !(obj instanceof PDFStream)) { const st = a.lookup(PDFName.of("AS")); n = st instanceof PDFName ? obj.get(st) : undefined; obj = n && doc.context.lookup(n); }
       if (!(obj instanceof PDFStream) || !(n instanceof PDFRef)) { keep(); continue; }
+      const formLayer = obj.dict.has(PDFName.of("OC")) ? layerShown(doc, obj.dict.get(PDFName.of("OC"))) : true;
+      if (formLayer === false) continue;
+      if (formLayer === null) { keep(); continue; }
       const rect = (a.lookup(PDFName.of("Rect")) as PDFArray)?.asRectangle?.(), bb = obj.dict.lookup(PDFName.of("BBox")) as PDFArray;
       if (!rect || !bb) { keep(); continue; }
       const b = bb.asRectangle(), sx = b.width ? rect.width / b.width : 1, sy = b.height ? rect.height / b.height : 1, name = page.node.newXObject("Flat", n);
@@ -745,9 +766,10 @@ export const pdfTools: Record<string, Run> = disclosed({
   "flatten-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc } = await open(f);
     refuseXfa(f);
-    try { const form = doc.getForm(); if (form.getFields().length) { form.updateFieldAppearances(); form.flatten(); } } catch { /* A broken form still has its annotations flattened below. */ }
+    // flattenAnnots bakes in field appearances too, and it honours hidden fields, which form.flatten() does not.
+    try { const form = doc.getForm(); if (form.getFields().length) form.updateFieldAppearances(); } catch { /* A broken form still has its annotations flattened below. */ }
     const kept = flattenAnnots(doc);
-    return out(`${stem(f.name)}-flat.pdf`, await saved(doc), kept ? `${kept} annotation${kept === 1 ? " has" : "s have"} no stored appearance, so ${kept === 1 ? "it was" : "they were"} kept as ${kept === 1 ? "an annotation" : "annotations"}.` : undefined);
+    return out(`${stem(f.name)}-flat.pdf`, await saved(doc, { updateFieldAppearances: false }), kept ? `${kept} annotation${kept === 1 ? " has" : "s have"} no stored appearance, so ${kept === 1 ? "it was" : "they were"} kept as ${kept === 1 ? "an annotation" : "annotations"}.` : undefined);
   }),
 
   "protect-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
@@ -832,8 +854,8 @@ export const pdfTools: Record<string, Run> = disclosed({
       else if (fd instanceof PDFCheckBox) { if (v) fd.check(); else fd.uncheck(); }
       else if ((fd instanceof PDFDropdown || fd instanceof PDFRadioGroup || fd instanceof PDFOptionList) && v) fd.select(String(v));
     }
-    if (p.flatten) form.flatten();
-    return [out(`${stem(f.name)}-filled.pdf`, await saved(doc))];
+    if (p.flatten) { form.updateFieldAppearances(); flattenAnnots(doc); }
+    return [out(`${stem(f.name)}-filled.pdf`, await saved(doc, p.flatten ? { updateFieldAppearances: false } : {}))];
   },
   "watermark-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     if (!p.text?.trim()) throw new Say("Enter the watermark text.");
