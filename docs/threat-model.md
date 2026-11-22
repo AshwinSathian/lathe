@@ -9,7 +9,7 @@ Lathe's central promise is that your file stays on your device. This page sets o
 | A tool sends a file somewhere | No backend exists. The CSP limits `connect-src` to this site, jsDelivr and Hugging Face | `no tool sends a file anywhere` test |
 | A crafted file runs script | Untrusted text goes through `textContent`. SVGs are drawn through `<img>` after scripts are removed. `script-src` has no `unsafe-inline` | CSP, SVG optimiser test |
 | The site is framed to trick you | `frame-ancestors 'none'` and `X-Frame-Options: DENY` | `security headers are present` test |
-| Redacted text can be copied back | Redacted pages are rebuilt from pixels. Links to removed pages are dropped, and kept pages that share an image with a redacted page are flattened too | `redaction` tests |
+| Redacted text can be copied back | Redacted pages are rebuilt from pixels. Links to removed pages are dropped, and images that only a redacted page draws are removed from kept pages | `redaction` tests |
 | Photos reveal a location | EXIF, XMP, IPTC, comments, thumbnails and data appended after the image are removed | `metadata removal strips GPS` test |
 | A model changes upstream | Hugging Face models are pinned to a commit, and the face model to a SHA-256 | `src/engine/ai.ts`, `scripts/vendor.mjs` |
 | A compromised build action | GitHub Actions are pinned to commit hashes, with read-only tokens by default | `.github/workflows` |

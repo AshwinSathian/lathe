@@ -1,6 +1,6 @@
 // Regression tests for ways a privacy tool can quietly keep what it promised to remove.
 import { test, expect, type Page } from "@playwright/test";
-import { PDFDocument, PDFName, PDFString, StandardFonts } from "pdf-lib";
+import { PDFDict, PDFDocument, PDFName, PDFString, StandardFonts } from "pdf-lib";
 import { inflateSync } from "node:zlib";
 import sharp from "sharp";
 
@@ -39,13 +39,25 @@ test("organiser drops a deleted page behind a link", async ({ page }) => {
   const out = await run(page, "organize-pdf", file("linked.pdf", await linked()), { order: [{ f: 0, page: 0, rot: 0 }] });
   expect(hasSecret(out)).toBe(false);
 });
-test("redaction flattens a kept page that shares an image with a redacted one", async ({ page }) => {
-  const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer());
-  const a = d.addPage([300, 300]), b = d.addPage([300, 300]); a.drawImage(jpg, { x: 0, y: 0, width: 300, height: 300 }); b.drawImage(jpg, { x: 0, y: 0, width: 300, height: 300 });
-  const out = await run(page, "redact-pdf", file("shared.pdf", Buffer.from(await d.save())), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+test("redaction removes an image a kept page lists but does not draw", async ({ page }) => {
+  const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), f = await d.embedFont(StandardFonts.Helvetica);
+  const a = d.addPage([300, 300]), b = d.addPage([300, 300]); a.drawImage(jpg, { x: 0, y: 0, width: 300, height: 300 }); b.drawText("KEPT", { x: 20, y: 200, size: 20, font: f });
+  await d.flush();
+  const name = a.node.Resources().lookup(PDFName.of("XObject"), PDFDict).keys()[0];
+  b.node.Resources().set(PDFName.of("XObject"), d.context.obj({ [name.decodeText()]: jpg.ref }));
+  const out = await run(page, "redact-pdf", file("shared.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   const o = await PDFDocument.load(out); let same = 0;
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
   expect(same).toBe(0);
+  expect(plain(out)).toMatch(/4b455054/i);
+});
+test("redaction keeps a shared logo and selectable text on kept pages", async ({ page }) => {
+  const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), f = await d.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < 2; i++) { const p = d.addPage([300, 300]); p.drawImage(jpg, { x: 0, y: 0, width: 64, height: 64 }); p.drawText("KEPT", { x: 20, y: 200, size: 20, font: f }); }
+  const out = await run(page, "redact-pdf", file("logo.pdf", Buffer.from(await d.save())), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const o = await PDFDocument.load(out); let same = 0;
+  for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
+  expect(same).toBe(1); expect(plain(out)).toMatch(/4b455054/i);
 });
 test("a crafted Markdown link cannot inject PDF objects", async ({ page }) => {
   const md = "[click](https://example.com/a)/S/JavaScript/JS(app.alert(1))>>) and [bad](javascript:alert(1))\n";

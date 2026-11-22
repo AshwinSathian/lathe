@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFHexString, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFHexString, PDFContentStream, decodePDFRawStream, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFPage } from "pdf-lib";
 import { unzlibSync } from "fflate";
 import { Say, bytesOf, pagesIn, parseRanges, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
 import { EXT, MIME, encode, load as loadImage, sniff } from "./codecs";
@@ -91,6 +91,29 @@ async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[]) {
   } finally { undo.forEach((f) => f()); }
 }
 const copy = async (src: PDFDocument, idx: number[]) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx)).forEach((x) => d.addPage(x)); return d; };
+/** The XObject names a page's own content actually draws, or null if its content cannot be read. */
+function drawnNames(doc: PDFDocument, page: PDFPage) {
+  try {
+    const c = page.node.Contents(), list = c instanceof PDFArray ? c.asArray().map((x) => doc.context.lookup(x)) : c ? [c] : [];
+    let text = "";
+    for (const st of list) text += new TextDecoder("latin1").decode(st instanceof PDFRawStream ? decodePDFRawStream(st).decode() : (st as PDFContentStream).getUnencodedContents()) + "\n";
+    return new Set([...text.matchAll(/\/([^\s/<>[\]()]+)\s+Do\b/g)].map((m) => PDFName.of(m[1])));
+  } catch { return null; }
+}
+/**
+ * Pages often share one resource dictionary, so a kept page can list an image that only a redacted page draws.
+ * Removes those entries for the copy. Returns an undo, or null if the page's content cannot be read.
+ */
+function withoutHidden(doc: PDFDocument, page: PDFPage, hidden: Set<unknown>) {
+  const res = page.node.Resources(), xo = res?.lookup(PDFName.of("XObject"));
+  if (!(xo instanceof PDFDict)) return () => {};
+  const used = drawnNames(doc, page);
+  if (!used) return null;
+  const key = PDFName.of("Resources"), was = page.node.get(key), nextXo = xo.clone(doc.context), next = res.clone(doc.context);
+  for (const [name, ref] of xo.entries()) if (hidden.has(ref) && !used.has(name)) nextXo.delete(name);
+  next.set(PDFName.of("XObject"), nextXo); page.node.set(key, next);
+  return () => { if (was) page.node.set(key, was); else page.node.delete(key); };
+}
 const xobjects = (page: PDFPage) => { const r = page.node.Resources()?.lookup(PDFName.of("XObject")); return new Set(r instanceof PDFDict ? r.values().filter((v) => v instanceof PDFRef) : []); };
 
 const render = (ctx: Ctx, bytes: Uint8Array, key: string, page: number, dpi: number, gray = false) => ctx.main<ImageBitmap>("render", { doc: new Blob([bytes as BlobPart]), key, page, dpi, gray });
@@ -478,9 +501,9 @@ export const pdfTools: Record<string, Run> = {
     const hidden = new Set(regions.flatMap((r) => [...xobjects(doc.getPage(r.page))]));
     for (let i = 0; i < n; i++) {
       const here = regions.filter((r) => r.page === i);
-      // Pages can share one resource dictionary, so a kept page may carry an image from a redacted page. Flatten it too.
-      const shares = !here.length && [...xobjects(doc.getPage(i))].some((x) => hidden.has(x));
-      if (!here.length && !shares) { const [pg] = await copyOnly(d, doc, [i]); d.addPage(pg); continue; }
+      // A page whose content cannot be read might carry an image from a redacted page, so it is flattened too.
+      const undo = here.length ? null : withoutHidden(doc, doc.getPage(i), hidden);
+      if (undo) { try { const [pg] = await copyOnly(d, doc, [i]); d.addPage(pg); } finally { undo(); } continue; }
       ctx.progress(i / n, `Redacting page ${i + 1}`);
       const b = await render(ctx, bytes, f.id, i, p.dpi), c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true });
       g.drawImage(b, 0, 0); g.fillStyle = "#000";
