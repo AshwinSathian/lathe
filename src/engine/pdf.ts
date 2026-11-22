@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFHexString, PDFContentStream, decodePDFRawStream, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFHexString, PDFContentStream, decodePDFRawStream, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFObject, type PDFPage } from "pdf-lib";
 import { unzlibSync } from "fflate";
 import { Say, bytesOf, pagesIn, parseRanges, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
 import { EXT, MIME, encode, load as loadImage, sniff } from "./codecs";
@@ -68,68 +68,152 @@ function reachesOther(ctx: PDFDocument["context"], start: unknown, keep: Set<PDF
   return false;
 }
 
-/**
- * Copies pages without what they link to. pdf-lib follows every reference, so a link, form field or article
- * thread on a kept page would otherwise carry a removed page, with its text, into the output.
- */
-async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[]) {
-  const pages = src.getPages(), keep = new Set(idx.map((i) => pages[i].ref)), undo: (() => void)[] = [];
-  const foreign = new Set<unknown>(pages.filter((x) => !keep.has(x.ref)).flatMap((x) => x.node.Annots()?.asArray() ?? []));
-  for (const i of new Set(idx)) {
-    const node = pages[i].node;
-    for (const key of ["B", "AA"].map((k) => PDFName.of(k))) { const was = node.get(key); if (was) { node.delete(key); undo.push(() => node.set(key, was)); } }
-    const annots = node.Annots();
-    if (!annots) continue;
-    const safe = annots.asArray().filter((a) => !reachesOther(src.context, a instanceof PDFRef ? src.context.lookup(a) : a, keep, foreign));
-    if (safe.length === annots.size()) continue;
-    const key = PDFName.of("Annots"), was = node.get(key);
-    node.set(key, src.context.obj(safe)); undo.push(() => node.set(key, was));
-  }
+/** Every name a page's content mentions, or null if it cannot be read. A superset of what it draws, so nothing visible is pruned. */
+function contentNames(doc: PDFDocument, page: PDFPage) {
   try {
-    const copied = await d.copyPages(src, idx), known = new Set([...d.getPages(), ...copied].map((x) => x.ref));
-    // Fail closed: if a page from outside the selection still got through, write nothing.
-    for (const [ref, o] of d.context.enumerateIndirectObjects()) if (isPage(o) && !known.has(ref)) throw new Say("This PDF links its pages in a way Lathe cannot separate safely, so no file was written.");
-    return copied;
-  } finally { undo.forEach((f) => f()); }
+    const c = page.node.Contents(), list = c instanceof PDFArray ? c.asArray().map((x) => doc.context.lookup(x)) : c ? [c] : [];
+    let text = "";
+    for (const st of list) text += new TextDecoder("latin1").decode(st instanceof PDFRawStream ? decodePDFRawStream(st).decode() : (st as PDFContentStream).getUnencodedContents()) + "\n";
+    return new Set([...text.matchAll(/\/([^\s/<>[\]()%{}]+)/g)].map((m) => m[1].replace(/#([\da-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))));
+  } catch { return null; }
 }
-const copy = async (src: PDFDocument, idx: number[]) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx)).forEach((x) => d.addPage(x)); return d; };
-/** The real page tree, found by walking from the pages themselves, so a /Type label in the file cannot fake a stopping point. */
+/** An explicit destination on a link annotation, as [page, fit, ...]. */
+function linkDest(a: PDFDict) {
+  if (nameOf(a.lookup(PDFName.of("Subtype"))) !== "Link") return null;
+  let dest = a.lookup(PDFName.of("Dest"));
+  const act = a.lookup(PDFName.of("A"));
+  if (!dest && act instanceof PDFDict && nameOf(act.lookup(PDFName.of("S"))) === "GoTo") dest = act.lookup(PDFName.of("D"));
+  return dest instanceof PDFArray && dest.get(0) instanceof PDFRef ? dest : null;
+}
+/** Set when a kept page still draws something a removed page also drew, such as a logo. */
+const reusesRemoved = new WeakSet<PDFDocument>();
+
+/**
+ * Copies pages without what they link to. pdf-lib follows every reference, so a link, form field or article thread
+ * would otherwise bring a whole other page into the output, even a removed one. Links between kept pages are rebuilt.
+ */
+async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[], track = false) {
+  const pages = src.getPages(), kept = [...new Set(idx)], keep = new Set(kept.map((i) => pages[i].ref)), removed = pages.filter((x) => !keep.has(x.ref)), undo: (() => void)[] = [];
+  const foreign = new Set<unknown>(removed.flatMap((x) => x.node.Annots()?.asArray() ?? [])), links: { from: PDFRef; rect: PDFArray; to: PDFRef; rest: PDFObject[] }[] = [];
+  const put = (dict: PDFDict, key: PDFName, value?: PDFObject) => { const was = dict.get(key); if (value) dict.set(key, value); else dict.delete(key); undo.push(() => { if (was) dict.set(key, was); else dict.delete(key); }); };
+  const P = PDFName.of("P"), ANNOTS = PDFName.of("Annots"), RES = PDFName.of("Resources"), XO = PDFName.of("XObject");
+  try {
+    for (const i of kept) {
+      const node = pages[i].node;
+      for (const key of ["B", "AA"].map((k) => PDFName.of(k))) if (node.has(key)) put(node, key);
+      for (const a of node.Annots()?.asArray() ?? []) { const o = src.context.lookup(a); if (o instanceof PDFDict && o.has(P)) put(o, P); }
+      // Shared resource dictionaries can list images only a removed page draws.
+      const res = node.Resources(), xo = res?.lookup(XO), names = removed.length && xo instanceof PDFDict ? contentNames(src, pages[i]) : null;
+      if (names && xo instanceof PDFDict) {
+        const nextXo = xo.clone(src.context);
+        for (const key of xo.keys()) if (!names.has(key.decodeText())) nextXo.delete(key);
+        if (nextXo.keys().length !== xo.keys().length) { const nextRes = res.clone(src.context); nextRes.set(XO, nextXo); put(node, RES, nextRes); }
+      }
+    }
+    for (const i of kept) {
+      const node = pages[i].node, annots = node.Annots();
+      if (!annots) continue;
+      const safe = annots.asArray().filter((a) => {
+        const o = src.context.lookup(a);
+        const dest = o instanceof PDFDict ? linkDest(o) : null, to = dest?.get(0) as PDFRef;
+        if (to && pages.some((x) => x.ref === to)) { if (keep.has(to)) links.push({ from: pages[i].ref, rect: (o as PDFDict).lookup(PDFName.of("Rect")) as PDFArray, to, rest: dest.asArray().slice(1) }); return false; }
+        return !reachesOther(src.context, o, new Set(), foreign);
+      });
+      if (safe.length !== annots.size()) put(node, ANNOTS, src.context.obj(safe));
+    }
+    if (track && removed.length) {
+      const tree = pageTree(src), gone = new Set(removed.flatMap((x) => [...pageStreams(src, x, tree, true)]));
+      if (kept.some((i) => sharesHidden(src, pages[i], gone, tree))) reusesRemoved.add(d);
+    }
+    const before = new Set(d.context.enumerateIndirectObjects().map(([ref]) => ref));
+    const copied = await d.copyPages(src, idx), known = new Set(copied.map((x) => x.ref)), target = new Map<PDFRef, PDFPage>();
+    // Fail closed: if this copy brought in any page beyond the selection, write nothing.
+    for (const [ref, o] of d.context.enumerateIndirectObjects()) if (!before.has(ref) && isPage(o) && !known.has(ref)) throw new Say("This PDF links its pages in a way Lathe cannot separate safely, so no file was written.");
+    idx.forEach((i, k) => { if (!target.has(pages[i].ref)) target.set(pages[i].ref, copied[k]); });
+    for (const l of links) if (l.rect instanceof PDFArray) target.get(l.from).node.addAnnot(d.context.register(d.context.obj({ Type: "Annot", Subtype: "Link", Rect: l.rect.clone(d.context), Border: [0, 0, 0], Dest: [target.get(l.to).ref, ...l.rest.filter((x) => !(x instanceof PDFRef))] })));
+    return copied;
+  } finally { undo.reverse().forEach((f) => f()); }
+}
+const copy = async (src: PDFDocument, idx: number[], track = false) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx, track)).forEach((x) => d.addPage(x)); return d; };
+const reuseNote = (d: PDFDocument) => (reusesRemoved.has(d) ? " A kept page reuses content from a removed page, such as a logo. To guarantee removal, use Redact PDF." : "");
+/** The real page tree, walked down from the catalog through /Kids, so a forged /Parent or /Type cannot add to it. */
 function pageTree(doc: PDFDocument) {
-  const tree = new Set<unknown>();
-  for (const page of doc.getPages()) {
-    tree.add(page.ref);
-    for (let up = page.node.get(PDFName.of("Parent")); up instanceof PDFRef && !tree.has(up); up = (doc.context.lookup(up) as PDFDict)?.get(PDFName.of("Parent"))) tree.add(up);
+  const leaves = new Set<unknown>(doc.getPages().map((x) => x.ref)), nodes = new Set<unknown>(), stack: unknown[] = [doc.catalog.get(PDFName.of("Pages"))];
+  while (stack.length) {
+    const r = stack.pop();
+    if (!(r instanceof PDFRef) || nodes.has(r) || leaves.has(r)) continue;
+    const o = doc.context.lookup(r), kids = o instanceof PDFDict ? o.lookup(PDFName.of("Kids")) : null;
+    if (!(kids instanceof PDFArray)) continue;
+    nodes.add(r); stack.push(...kids.asArray());
   }
-  return tree;
+  return { leaves, nodes };
+}
+type PageTree = ReturnType<typeof pageTree>;
+const FONT_KEYS = new Set(["Type", "Subtype", "BaseFont", "Name", "FirstChar", "LastChar", "Widths", "FontDescriptor", "Encoding", "ToUnicode", "DescendantFonts"].map((k) => PDFName.of(k)));
+const FONT_TYPES = new Set(["Type0", "Type1", "MMType1", "TrueType"]);
+const isOrdinaryFont = (o: unknown): o is PDFDict => o instanceof PDFDict && nameOf(o.lookup(PDFName.of("Type"))) === "Font" && FONT_TYPES.has(nameOf(o.lookup(PDFName.of("Subtype")))) && o.has(PDFName.of("BaseFont"));
+/** A colour space that is exactly [/ICCBased profile], where the stream has /N and the ICC file signature. */
+function isIccSpace(doc: PDFDocument, v: unknown) {
+  const a = doc.context.lookup(v as PDFRef);
+  if (!(a instanceof PDFArray) || a.size() !== 2 || a.lookup(0) !== PDFName.of("ICCBased")) return false;
+  const o = a.lookup(1);
+  if (!(o instanceof PDFStream) || !o.dict.has(PDFName.of("N")) || o.dict.has(PDFName.of("Subtype"))) return false;
+  try { const b = o instanceof PDFRawStream ? decodePDFRawStream(o).decode() : o.getContents(); return String.fromCharCode(...b.subarray(36, 40)) === "acsp"; }
+  catch { return false; }
 }
 /**
- * Streams reachable from a page. With `shown`, only what the page can display: ordinary fonts and ICC profiles are
- * left out, because documents share them by design and they hold no page content. Without it, nothing is left out.
- * Comparing a kept page's full set with a redacted page's shown set means a mislabelled object cannot hide a stream.
+ * Streams reachable from a page. With `shown`, font programs and ICC profiles are left out, because documents share
+ * them by design and they hold no page content. They are left out only where the PDF structure puts them: a font in a
+ * /Resources /Font map, a profile in a /ColorSpace entry. A label anywhere else changes nothing.
+ * Without `shown`, nothing is left out, so a kept page cannot hide a stream behind a mislabelled object.
  */
-function pageStreams(doc: PDFDocument, page: PDFPage, tree: Set<unknown>, shown: boolean) {
-  const found = new Set<PDFRef>(), seen = new Set<unknown>(), parent = PDFName.of("Parent");
-  const stack: unknown[] = [...page.node.entries().filter(([k]) => k !== parent).map(([, v]) => v), page.node.Resources()];
+function pageStreams(doc: PDFDocument, page: PDFPage, tree: PageTree, shown: boolean) {
+  const found = new Set<PDFRef>(), seen = new Set<unknown>(), maps = new Set<unknown>(), stack: unknown[] = [];
+  const [parent, kids, RES, FONT, CS] = ["Parent", "Kids", "Resources", "Font", "ColorSpace"].map((k) => PDFName.of(k));
+  const resources = (x: unknown) => {
+    const r = doc.context.lookup(x as PDFRef);
+    if (!(r instanceof PDFDict)) return void stack.push(x);
+    if (maps.has(r)) return;
+    maps.add(r);
+    for (const [k, v] of r.entries()) {
+      const map = doc.context.lookup(v as PDFRef);
+      if ((k === FONT || k === CS) && map instanceof PDFDict) {
+        for (const item of map.values()) {
+          const o = doc.context.lookup(item as PDFRef);
+          if (k === CS ? isIccSpace(doc, item) : false) continue;
+          if (k === FONT && isOrdinaryFont(o)) { for (const [fk, fv] of o.entries()) if (!FONT_KEYS.has(fk)) stack.push(fv); continue; }
+          stack.push(item);
+        }
+      } else stack.push(v);
+    }
+  };
+  const entries = (d: PDFDict) => {
+    const image = nameOf(d.lookup(PDFName.of("Subtype"))) === "Image";
+    for (const [k, v] of d.entries()) {
+      if (shown && k === RES) resources(v);
+      else if (!(shown && image && k === CS && isIccSpace(doc, v))) stack.push(v);
+    }
+  };
+  for (const [k, v] of page.node.entries()) if (k !== parent && k !== RES) stack.push(v);
+  if (shown) resources(page.node.Resources()); else stack.push(page.node.Resources());
   while (stack.length) {
     const v = stack.pop();
-    if (!v || seen.has(v) || tree.has(v)) continue;
+    if (!v || seen.has(v) || tree.leaves.has(v)) continue;
     seen.add(v);
     if (v instanceof PDFRef) {
       const o = doc.context.lookup(v);
+      // A tree node can hold inherited resources, so only its links to other pages are skipped.
+      if (tree.nodes.has(v)) { stack.push(...(o as PDFDict).entries().filter(([k]) => k !== parent && k !== kids).map(([, x]) => x)); continue; }
       if (o instanceof PDFStream) found.add(v);
       stack.push(o);
-    } else if (v instanceof PDFArray) {
-      if (!(shown && v.size() === 2 && v.lookup(0) === PDFName.of("ICCBased"))) stack.push(...v.asArray());
-    } else if (v instanceof PDFStream) stack.push(...v.dict.values());
-    else if (v instanceof PDFDict) {
-      if (shown && nameOf(v.lookup(PDFName.of("Type"))) === "Font" && nameOf(v.lookup(PDFName.of("Subtype"))) !== "Type3") continue;
-      stack.push(...v.values());
-    }
+    } else if (v instanceof PDFArray) stack.push(...v.asArray());
+    else if (v instanceof PDFStream) entries(v.dict);
+    else if (v instanceof PDFDict) entries(v);
   }
   return found;
 }
 /** A kept page that can reach anything a redacted page shows is flattened, because it might show only part of it. */
-const sharesHidden = (doc: PDFDocument, page: PDFPage, hidden: Set<PDFRef>, tree: Set<unknown>) => [...pageStreams(doc, page, tree, false)].some((x) => hidden.has(x));
+const sharesHidden = (doc: PDFDocument, page: PDFPage, hidden: Set<PDFRef>, tree: PageTree) => [...pageStreams(doc, page, tree, false)].some((x) => hidden.has(x));
 
 const render = (ctx: Ctx, bytes: Uint8Array, key: string, page: number, dpi: number, gray = false) => ctx.main<ImageBitmap>("render", { doc: new Blob([bytes as BlobPart]), key, page, dpi, gray });
 const toImg = (b: ImageBitmap) => { const c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(b, 0, 0); return g.getImageData(0, 0, c.width, c.height); };
@@ -356,7 +440,7 @@ export const pdfTools: Record<string, Run> = {
       ctx.progress(i / files.length, `Adding ${files[i].name}`);
       const { doc } = await open(files[i]);
       marks.push({ title: stem(files[i].name), page: d.getPageCount() });
-      (await d.copyPages(doc, doc.getPageIndices())).forEach((x) => d.addPage(x));
+      (await copyOnly(d, doc, doc.getPageIndices())).forEach((x) => d.addPage(x));
     }
     if (p.bookmarks) addOutline(d, marks);
     return [out("merged.pdf", await saved(d), `${d.getPageCount()} pages from ${files.length} files`)];
@@ -388,18 +472,25 @@ export const pdfTools: Record<string, Run> = {
     const docs = await Promise.all(files.map((f) => open(f).then((x) => x.doc))), d = await PDFDocument.create();
     const order = p.order ?? docs.flatMap((x, f) => x.getPageIndices().map((page) => ({ f, page, rot: 0 })));
     if (!order.length) throw new Say("Keep at least one page.");
-    for (let i = 0; i < order.length; i++) {
-      const o = order[i]; ctx.progress(i / order.length, "Arranging pages");
-      const [pg] = await copyOnly(d, docs[o.f], [o.page]);
+    // Each file is copied in one pass, so links between its kept pages survive reordering.
+    const copied = new Map<string, PDFPage>();
+    for (let f = 0; f < docs.length; f++) {
+      const wanted = [...new Set<number>(order.filter((o: any) => o.f === f).map((o: any) => o.page))];
+      if (wanted.length) (await copyOnly(d, docs[f], wanted, true)).forEach((pg, k) => copied.set(`${f}:${wanted[k]}`, pg));
+    }
+    order.forEach((o: any, i: number) => {
+      ctx.progress(i / order.length, "Arranging pages");
+      const pg = copied.get(`${o.f}:${o.page}`);
       if (o.rot) pg.setRotation(degrees((pg.getRotation().angle + o.rot) % 360));
       d.addPage(pg);
-    }
-    return [out(`${stem(files[0].name)}-organised.pdf`, await saved(d), `${order.length} pages`)];
+    });
+    return [out(`${stem(files[0].name)}-organised.pdf`, await saved(d), `${order.length} pages.${reuseNote(d)}`)];
   },
   "extract-pages": (files, p, ctx) => each(files, ctx, async (f) => {
     if (!p.pages?.trim()) throw new Say("Enter the pages to keep, such as 2-4, 9.");
     const { doc } = await open(f), idx = parseRanges(p.pages, doc.getPageCount()).flat();
-    return out(`${stem(f.name)}-extract.pdf`, await saved(await copy(doc, idx)), `${idx.length} pages`);
+    const r = await copy(doc, idx, true);
+    return out(`${stem(f.name)}-extract.pdf`, await saved(r), `${idx.length} pages.${reuseNote(r)}`);
   }),
   "delete-pages": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc, bytes } = await open(f), n = doc.getPageCount(), drop = new Set(p.pages?.trim() ? parseRanges(p.pages, n).flat() : []);
@@ -413,7 +504,8 @@ export const pdfTools: Record<string, Run> = {
     if (!drop.size) throw new Say("Nothing to delete. Enter pages, or turn on blank page removal.");
     const keep = doc.getPageIndices().filter((i) => !drop.has(i));
     if (!keep.length) throw new Say("That would delete every page.");
-    return out(`${stem(f.name)}-trimmed.pdf`, await saved(await copy(doc, keep)), `Removed ${drop.size} page${drop.size === 1 ? "" : "s"}, ${keep.length} left`);
+    const r = await copy(doc, keep, true);
+    return out(`${stem(f.name)}-trimmed.pdf`, await saved(r), `Removed ${drop.size} page${drop.size === 1 ? "" : "s"}, ${keep.length} left.${reuseNote(r)}`);
   }),
   "rotate-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc } = await open(f), pages = doc.getPages();
@@ -527,18 +619,22 @@ export const pdfTools: Record<string, Run> = {
     const regions: any[] = p.regions ?? [];
     if (!regions.length) throw new Say("Draw at least one box over what you want removed.");
     const { doc, bytes } = await open(f), d = await PDFDocument.create(), n = doc.getPageCount();
-    const tree = pageTree(doc), hidden = new Set(regions.flatMap((r) => [...pageStreams(doc, doc.getPage(r.page), tree, true)]));
+    const everyPage = p.flattenAll !== false, tree = pageTree(doc), hidden = new Set(regions.flatMap((r) => [...pageStreams(doc, doc.getPage(r.page), tree, true)]));
+    const untouched = everyPage ? [] : doc.getPageIndices().filter((i) => !regions.some((r) => r.page === i) && !sharesHidden(doc, doc.getPage(i), hidden, tree));
+    const kept = new Map<number, PDFPage>();
+    if (untouched.length) (await copyOnly(d, doc, untouched)).forEach((pg, k) => kept.set(untouched[k], pg));
     for (let i = 0; i < n; i++) {
+      if (kept.has(i)) { d.addPage(kept.get(i)); continue; }
       const here = regions.filter((r) => r.page === i);
-      if (!here.length && !sharesHidden(doc, doc.getPage(i), hidden, tree)) { const [pg] = await copyOnly(d, doc, [i]); d.addPage(pg); continue; }
-      ctx.progress(i / n, `Redacting page ${i + 1}`);
+      ctx.progress(i / n, `Flattening page ${i + 1} of ${n}`);
       const b = await render(ctx, bytes, f.id, i, p.dpi), c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true });
-      g.drawImage(b, 0, 0); g.fillStyle = "#000";
+      g.drawImage(b, 0, 0); b.close(); g.fillStyle = "#000";
       for (const r of here) g.fillRect(Math.floor(r.x * c.width) - 1, Math.floor(r.y * c.height) - 1, Math.ceil(r.w * c.width) + 2, Math.ceil(r.h * c.height) + 2);
       const v = visual(doc.getPage(i)), im = await d.embedJpg(await encode(g.getImageData(0, 0, c.width, c.height), "jpeg", 90)), pg = d.addPage([v.W, v.H]);
       pg.drawImage(im, { x: 0, y: 0, width: v.W, height: v.H });
     }
-    return [out(`${stem(f.name)}-redacted.pdf`, await saved(d), `Redacted ${new Set(regions.map((r) => r.page)).size} page(s). The content under the boxes is gone from the file.`)];
+    const flat = n - kept.size;
+    return [out(`${stem(f.name)}-redacted.pdf`, await saved(d), everyPage ? "Every page is now an image, so nothing hidden remains in the file. Run OCR PDF if you need searchable text." : `Flattened ${flat} of ${n} page${n === 1 ? "" : "s"}. The content under the boxes is gone from the file.`)];
   },
   "pdf-metadata": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc } = await open(f);

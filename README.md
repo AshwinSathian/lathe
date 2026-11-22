@@ -49,7 +49,7 @@ Most free PDF and image sites work by uploading your passport scan, contract or 
 ## What makes it different
 
 - **HEIC both ways.** Chrome and Firefox can't open iPhone photos on their own, so Lathe decodes them with libheif in WebAssembly. Export uses your browser's HEVC encoder and a [HEIF writer in this repository](src/engine/heif.ts), so no GPL encoder ships.
-- **Redaction that removes the content.** Redacted pages are rebuilt from pixels, and a test confirms the text can no longer be extracted.
+- **Redaction that removes the content.** Every page is rebuilt from pixels by default, and tests confirm the hidden text can no longer be extracted.
 - **PDF compression that keeps text as text.** It recompresses the embedded images with MozJPEG and rewrites the file with qpdf.
 - **AI on your device.** Background removal, upscaling, OCR and face blur run locally. A model downloads only after you agree, and is then cached.
 - **Live editing.** Photo adjustments run in a WebGL2 shader, with a before and after divider on the image.

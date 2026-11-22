@@ -9,6 +9,8 @@ async function run(page: Page, id: string, f: any, params: object = {}) {
   await page.goto(`/${id}`);
   await page.locator("#stage input[type=file]").first().setInputFiles(f);
   await expect(page.locator("#stage .tray")).toBeVisible();
+  // The organiser publishes its page order once thumbnails are laid out, which would overwrite an earlier value.
+  if (id === "organize-pdf") await page.waitForFunction(() => (window as any).__lathe.params.order?.length > 0);
   await page.evaluate((x) => Object.assign((window as any).__lathe.params, x), params);
   const go = page.locator("#panel > .btn").first(); await expect(go).toBeEnabled(); await go.click();
   await expect(page.locator("#panel .results h2, #panel .alert").first()).toBeVisible({ timeout: 60_000 });
@@ -28,7 +30,7 @@ async function linked() {
 const hasSecret = (b: Buffer) => /544f50534543524554|TOPSECRET/i.test(plain(b));
 
 test("fixture really does hide the secret behind a link", async () => { expect(hasSecret(await linked())).toBe(true); });
-for (const [id, params] of [["redact-pdf", { regions: [{ page: 1, x: 0, y: 0, w: 1, h: 1 }] }], ["delete-pages", { pages: "2" }], ["extract-pages", { pages: "1" }], ["split-pdf", { mode: "ranges", ranges: "1" }]] as const) {
+for (const [id, params] of [["redact-pdf", { flattenAll: false, regions: [{ page: 1, x: 0, y: 0, w: 1, h: 1 }] }], ["delete-pages", { pages: "2" }], ["extract-pages", { pages: "1" }], ["split-pdf", { mode: "ranges", ranges: "1" }]] as const) {
   test(`${id} leaves no removed page behind a cross-page link`, async ({ page }) => {
     const out = await run(page, id, file("linked.pdf", await linked()), params);
     expect(hasSecret(out)).toBe(false);
@@ -45,7 +47,7 @@ test("redaction flattens a kept page that lists a hidden image", async ({ page }
   await d.flush();
   const name = a.node.Resources().lookup(PDFName.of("XObject"), PDFDict).keys()[0];
   b.node.Resources().set(PDFName.of("XObject"), d.context.obj({ [name.decodeText()]: jpg.ref }));
-  const out = await run(page, "redact-pdf", file("shared.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("shared.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   const o = await PDFDocument.load(out); let same = 0;
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
   expect(same).toBe(0);
@@ -53,7 +55,7 @@ test("redaction flattens a kept page that lists a hidden image", async ({ page }
 test("redaction flattens a kept page that draws part of a shared image", async ({ page }) => {
   const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), f = await d.embedFont(StandardFonts.Helvetica);
   for (let i = 0; i < 2; i++) { const p = d.addPage([300, 300]); p.drawImage(jpg, { x: 0, y: 0, width: 64, height: 64 }); p.drawText("KEPT", { x: 20, y: 200, size: 20, font: f }); }
-  const out = await run(page, "redact-pdf", file("logo.pdf", Buffer.from(await d.save())), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("logo.pdf", Buffer.from(await d.save())), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   const o = await PDFDocument.load(out); let same = 0;
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
   expect(same).toBe(0); expect(o.getPageCount()).toBe(2);
@@ -70,7 +72,7 @@ test("redaction flattens a kept page whose form reaches a hidden image", async (
   const form = d.context.register(d.context.stream("q Q", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 10, 10], Resources: { XObject: { Hidden: jpg.ref } } }));
   b.node.Resources().set(PDFName.of("XObject"), d.context.obj({ Wrap: form }));
   b.pushOperators(PDFOperator.of("Do" as any, [PDFName.of("Wrap")]));
-  const out = await run(page, "redact-pdf", file("nested.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("nested.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   const o = await PDFDocument.load(out); let same = 0;
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
   expect(same).toBe(0);
@@ -93,14 +95,14 @@ test("redaction flattens a kept page that reuses the redacted page's content str
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
   a.drawText("TOPSECRET", { x: 20, y: 200, size: 20, font: f }); await d.flush();
   b.node.set(PDFName.of("Contents"), a.node.get(PDFName.of("Contents"))); b.node.set(PDFName.of("Resources"), a.node.get(PDFName.of("Resources")));
-  const out = await run(page, "redact-pdf", file("same.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("same.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   expect(hasSecret(out)).toBe(false);
 });
 test("redaction flattens a kept page that shares an annotation appearance", async ({ page }) => {
   const d = await PDFDocument.create(), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
   const look = d.context.register(d.context.stream("BT (HIDDENAP) Tj ET", { Type: "XObject", Subtype: "Form", BBox: [0, 0, 50, 50] }));
   for (const p of [a, b]) p.node.addAnnot(d.context.register(d.context.obj({ Type: "Annot", Subtype: "Stamp", Rect: [0, 0, 50, 50], AP: { N: look } })));
-  const out = await run(page, "redact-pdf", file("ap.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("ap.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   expect(plain(out)).not.toContain("HIDDENAP");
 });
 test("redaction flattens a kept page that shares a Type 3 font", async ({ page }) => {
@@ -108,20 +110,20 @@ test("redaction flattens a kept page that shares a Type 3 font", async ({ page }
   const glyph = d.context.register(d.context.stream("0 0 d0 (HIDDENGLYPH) pop", {}));
   const font = d.context.register(d.context.obj({ Type: "Font", Subtype: "Type3", FontBBox: [0, 0, 10, 10], FontMatrix: [1, 0, 0, 1, 0, 0], CharProcs: { a: glyph }, Encoding: { Type: "Encoding", Differences: [97, PDFName.of("a")] }, FirstChar: 97, LastChar: 97, Widths: [10] }));
   for (const p of [a, b]) p.node.Resources().set(PDFName.of("Font"), d.context.obj({ T3: font }));
-  const out = await run(page, "redact-pdf", file("t3.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("t3.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   expect(plain(out)).not.toContain("HIDDENGLYPH");
 });
 test("redaction keeps pages selectable when they share only an ordinary font", async ({ page }) => {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica);
   for (const x of ["TOPSECRET", "KEPT"]) d.addPage([300, 300]).drawText(x, { x: 20, y: 200, size: 20, font: f });
-  const out = await run(page, "redact-pdf", file("font.pdf", Buffer.from(await d.save())), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("font.pdf", Buffer.from(await d.save())), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   expect(hasSecret(out)).toBe(false); expect(plain(out)).toMatch(/4b455054/i);
 });
 for (const name of ["P", "Parent", "Metadata", "ColorSpace"]) test(`redaction is not fooled by a shared image stored under the name /${name}`, async ({ page }) => {
   const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
   await d.flush();
   for (const p of [a, b]) p.node.Resources().set(PDFName.of("XObject"), d.context.obj({ [name]: jpg.ref }));
-  const out = await run(page, "redact-pdf", file("named.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("named.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   const o = await PDFDocument.load(out); let same = 0;
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
   expect(same).toBe(0);
@@ -131,16 +133,48 @@ for (const [label, wrap] of [["a font", { Type: "Font", Subtype: "TrueType", Bas
   a.drawImage(jpg, { x: 0, y: 0, width: 300, height: 300 }); await d.flush();
   const fake = d.context.register(d.context.obj({ ...wrap, Extra: jpg.ref }));
   b.node.Resources().set(PDFName.of("Properties"), d.context.obj({ MC0: fake }));
-  const out = await run(page, "redact-pdf", file("fake.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("fake.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   const o = await PDFDocument.load(out); let same = 0;
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
   expect(same).toBe(0);
+});
+const redactedImageCount = async (page: Page, d: PDFDocument, name: string) => {
+  const out = await run(page, "redact-pdf", file(name, Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const o = await PDFDocument.load(out); let same = 0;
+  for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
+  return same;
+};
+const twoPages = async () => {
+  const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
+  a.drawImage(jpg, { x: 0, y: 0, width: 300, height: 300 }); await d.flush();
+  return { d, jpg, a, b };
+};
+test("redaction is not fooled by a forged /Parent that wraps the hidden image", async ({ page }) => {
+  const { d, jpg, b } = await twoPages();
+  const wrapper = d.context.register(d.context.obj({ Type: "Pages", Kids: [], Count: 0, Extra: jpg.ref }));
+  b.node.Resources().set(PDFName.of("Properties"), d.context.obj({ MC0: wrapper }));
+  b.node.set(PDFName.of("Parent"), wrapper);
+  expect(await redactedImageCount(page, d, "forged.pdf")).toBe(0);
+});
+test("redaction is not fooled by an XObject map labelled as a font", async ({ page }) => {
+  const { d, jpg, a, b } = await twoPages();
+  const map = a.node.Resources().lookup(PDFName.of("XObject"), PDFDict);
+  map.set(PDFName.of("Type"), PDFName.of("Font")); map.set(PDFName.of("Subtype"), PDFName.of("TrueType"));
+  b.node.Resources().set(PDFName.of("Properties"), d.context.obj({ MC0: jpg.ref }));
+  expect(await redactedImageCount(page, d, "label.pdf")).toBe(0);
+});
+test("redaction is not fooled by an image disguised as an ICC colour space", async ({ page }) => {
+  const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
+  await d.flush();
+  a.node.Resources().set(PDFName.of("Properties"), d.context.obj({ X: [PDFName.of("ICCBased"), jpg.ref] }));
+  b.node.Resources().set(PDFName.of("Properties"), d.context.obj({ Y: jpg.ref }));
+  expect(await redactedImageCount(page, d, "icc-fake.pdf")).toBe(0);
 });
 test("redaction keeps pages selectable when they share only a colour profile", async ({ page }) => {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica), icc = new Uint8Array(128); icc.set([0x61, 0x63, 0x73, 0x70], 36);
   const profile = d.context.register(d.context.stream(icc, { N: 3 }));
   for (const x of ["TOPSECRET", "KEPT"]) { const p = d.addPage([300, 300]); p.drawText(x, { x: 20, y: 200, size: 20, font: f }); p.node.Resources().set(PDFName.of("ColorSpace"), d.context.obj({ CS0: [PDFName.of("ICCBased"), profile] })); }
-  const out = await run(page, "redact-pdf", file("icc.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const out = await run(page, "redact-pdf", file("icc.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   expect(hasSecret(out)).toBe(false); expect(plain(out)).toMatch(/4b455054/i);
 });
 test("metadata wipe reaches XMP on pages and images", async ({ page }) => {

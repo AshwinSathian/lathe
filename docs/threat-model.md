@@ -9,7 +9,7 @@ Lathe's central promise is that your file stays on your device. This page sets o
 | A tool sends a file somewhere | No backend exists. The CSP limits `connect-src` to this site, jsDelivr and Hugging Face | `no tool sends a file anywhere` test |
 | A crafted file runs script | Untrusted text goes through `textContent`. SVGs are drawn through `<img>` after scripts are removed. `script-src` has no `unsafe-inline` | CSP, SVG optimiser test |
 | The site is framed to trick you | `frame-ancestors 'none'` and `X-Frame-Options: DENY` | `security headers are present` test |
-| Redacted text can be copied back | Redacted pages are rebuilt from pixels. Links to removed pages are dropped, and kept pages that reuse any content from a redacted page are flattened too | `redaction` tests |
+| Redacted text can be copied back | Redacted pages are rebuilt from pixels. Links to removed pages are dropped, and every page is flattened by default. With that setting off, kept pages that reuse any content from a redacted page are still flattened | `redaction` tests |
 | Photos reveal a location | EXIF, XMP, IPTC, comments, thumbnails and data appended after the image are removed | `metadata removal strips GPS` test |
 | A model changes upstream | Hugging Face models are pinned to a commit, and the face model to a SHA-256 | `src/engine/ai.ts`, `scripts/vendor.mjs` |
 | A compromised build action | GitHub Actions are pinned to commit hashes, with read-only tokens by default | `.github/workflows` |
@@ -17,6 +17,8 @@ Lathe's central promise is that your file stays on your device. This page sets o
 ## What Lathe cannot protect against
 
 - **A compromised host or CDN.** If this site or jsDelivr served malicious code, it would run in your tab. The CSP limits where it could send data, but both allowed hosts accept requests. For stronger assurance, [self-host](self-hosting.md) and block outbound traffic.
+- **Cloudflare, which hosts the public site.** Its JS Detections feature inserts an inline bot-detection script into each page, and this site cannot turn that off. The CSP blocks the script and a production test checks that its loader is never requested, so browsers log one CSP error. Self-hosting removes it.
+- **Page removal with shared content.** Delete, extract and organise keep what a kept page still draws, such as a repeated logo, and say so in the result. Use Redact PDF when content must be gone.
 - **Malware or extensions on your device.** Browser extensions can read the page.
 - **Who sees your downloads.** jsDelivr and Hugging Face can see your IP address when you download a model. They receive no file data.
 - **Blur and pixelation.** These can sometimes be reversed. Use a solid block for text and numbers.

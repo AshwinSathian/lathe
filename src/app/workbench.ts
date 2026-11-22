@@ -15,7 +15,8 @@ const params: Record<string, any> = {};
 for (const c of tool.controls) params[c.k] = secret.has(c.k) ? "" : saved[c.k] ?? ("def" in c ? c.def : "");
 Object.assign(params, tool.preset);
 // A text box such as a watermark keeps its last value, but free text never persists between documents.
-const remember = () => { try { const o: Record<string, unknown> = {}; for (const c of tool.controls) if (!secret.has(c.k) && c.type !== "textarea" && c.k !== "pages" && c.k !== "ranges") o[c.k] = params[c.k]; localStorage.setItem(storeKey, JSON.stringify(o)); } catch { /* Settings just will not persist. */ } };
+// The redaction safety setting always starts on, so one relaxed document cannot weaken the next.
+const remember = () => { try { const o: Record<string, unknown> = {}; for (const c of tool.controls) if (!secret.has(c.k) && c.type !== "textarea" && c.k !== "pages" && c.k !== "ranges" && c.k !== "flattenAll") o[c.k] = params[c.k]; localStorage.setItem(storeKey, JSON.stringify(o)); } catch { /* Settings just will not persist. */ } };
 
 let files: In[] = [], current = 0, outs: (Out & { url?: string })[] = [], busy = false, consented = !tool.model;
 let uid = 0, previewTimer = 0, previewBusy = false, previewAgain = false;

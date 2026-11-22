@@ -2,6 +2,19 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-11-22
+
+### Security
+
+- Redaction flattens every page by default. The setting returns to on for each visit
+- Redaction checks follow the real page tree and PDF structure, so forged `/Parent`, `/Type` and ICC entries cannot hide content
+- Delete, extract, split and organise remove images that only a removed page draws, and warn when a kept page reuses removed content
+
+### Fixed
+
+- Delete, extract and split no longer refuse PDFs with internal links or standard form fields
+- Merge and organise keep links between pages without adding hidden duplicate pages
+
 ## [0.1.3] - 2026-11-22
 
 ### Security
@@ -47,6 +60,7 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[0.1.4]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.4
 [0.1.3]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.3
 [0.1.2]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.2
 [0.1.1]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.1

@@ -1,4 +1,5 @@
 // Production checks: run with LATHE_URL set. They cover what only exists on the real host.
+import { createHash } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { tools } from "../src/data/tools";
 const base = process.env.LATHE_URL;
@@ -37,8 +38,15 @@ test("discovery files are right", async ({ request }) => {
 test("engines are served with the right type, under the size limit", async ({ request }) => {
   const r = await request.head("/vendor/mediapipe/vision_wasm_internal.wasm"); expect(r.status()).toBe(200); expect(r.headers()["content-type"]).toBe("application/wasm");
 });
-test("the page loads without console errors", async ({ page }) => {
-  const bad: string[] = []; page.on("console", (m) => { if (m.type() === "error") bad.push(m.text()); }); page.on("pageerror", (e) => bad.push(e.message));
-  await page.goto("/compress-pdf"); await page.waitForLoadState("networkidle");
-  expect(bad).toEqual([]);
+// Cloudflare's JS Detections adds an inline script that this zone cannot turn off. The CSP must keep blocking it,
+// so that one script, identified by hash, is the only console error allowed, and its loader must never be requested.
+test("the page has no console errors except the blocked Cloudflare script", async ({ page }) => {
+  const bad: string[] = [], challenge: string[] = [];
+  page.on("console", (m) => { if (m.type() === "error") bad.push(m.text()); }); page.on("pageerror", (e) => bad.push(e.message));
+  page.on("request", (r) => { if (r.url().includes("/cdn-cgi/challenge-platform")) challenge.push(r.url()); });
+  const res = await page.goto("/compress-pdf"); await page.waitForLoadState("networkidle");
+  const html = await res.text(), injected = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((x) => x.includes("challenge-platform"));
+  const hashes = injected.map((x) => createHash("sha256").update(x).digest("base64"));
+  expect(bad.filter((m) => !(/inline script violates/.test(m) && hashes.some((h) => m.includes(`sha256-${h}`))))).toEqual([]);
+  expect(challenge).toEqual([]);
 });

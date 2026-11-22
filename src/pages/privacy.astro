@@ -6,7 +6,7 @@ import Base from "../layouts/Base.astro";
     <h1>How privacy works here</h1>
     <p>Lathe has no upload endpoint. The site is a set of static files, and every tool runs in your browser tab using WebAssembly, WebGL and Web Workers.</p>
     <h2>What leaves your device</h2>
-    <p>Your files do not. Neither do passwords, signatures or text you type. The site has no analytics, cookies or accounts.</p>
+    <p>Your files do not. Neither do passwords, signatures or text you type. The site has no analytics, cookies or accounts. Cloudflare, which hosts it, inserts a bot-detection script into each page. Lathe cannot turn that off, so its security policy blocks the script from running.</p>
     <h2>What your browser downloads</h2>
     <p>The page and its engines come from this site. Three AI features need extra data, and Lathe asks before fetching it: the background removal and upscaling models come from Hugging Face, their runtime and OCR language data come from jsDelivr. Those are downloads to your device. Those services can see your IP address, as with any download, but they receive nothing from your files.</p>
     <h2>What is stored</h2>
