@@ -34,6 +34,10 @@
   ! Cache-Control
   Cache-Control: no-cache
 
+/*.md
+  ! Content-Type
+  Content-Type: text/markdown; charset=utf-8
+
 /speculation.json
   ! Cache-Control
   Content-Type: application/speculationrules+json

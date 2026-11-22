@@ -33,7 +33,7 @@
   },
   "scripts": {
     "dev": "npm run vendor && astro dev --port 4340",
-    "build": "npm run vendor && astro build && rm -f dist/_astro/ort-wasm* && node scripts/stamp-sw.mjs",
+    "build": "npm run vendor && astro build && rm -f dist/_astro/ort-wasm* && node scripts/og.mjs && node scripts/stamp-sw.mjs",
     "preview": "astro preview --port 4341",
     "test": "playwright test",
     "vendor": "node scripts/vendor.mjs",

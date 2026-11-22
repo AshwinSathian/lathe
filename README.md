@@ -9,7 +9,7 @@
 
 **Image and PDF tools that run entirely in your browser. Your files are never uploaded.**
 
-[Open Lathe](https://lathe.ashwinsathian.com) · [All tools](docs/tools.md) · [How privacy works](docs/threat-model.md) · [Self-host](docs/self-hosting.md)
+[Open Lathe](https://lathe.ashwinsathian.com) · [Documentation](https://lathe.ashwinsathian.com/docs) · [All tools](docs/tools.md) · [Verify privacy](docs/verify-privacy.md) · [Self-host](docs/self-hosting.md)
 
 [![CI](https://github.com/AshwinSathian/lathe/actions/workflows/ci.yml/badge.svg)](https://github.com/AshwinSathian/lathe/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/AshwinSathian/lathe/actions/workflows/codeql.yml/badge.svg)](https://github.com/AshwinSathian/lathe/actions/workflows/codeql.yml)
@@ -73,7 +73,7 @@ Most free PDF and image sites work by uploading your passport scan, contract or 
 
 ## How it compares
 
-[Stirling-PDF](https://github.com/Stirling-Tools/Stirling-PDF) is a mature, full-featured PDF server you host with Docker, and it can do conversions that need LibreOffice. Pick it if your team wants a shared server. [BentoPDF](https://github.com/alam00000/bentopdf) is a client-side PDF toolkit with a broad feature set under a dual AGPL and commercial licence. Lathe covers images as well as PDFs, adds on-device AI, and is MIT licensed.
+[Stirling-PDF](https://github.com/Stirling-Tools/Stirling-PDF) is an open-core PDF platform with desktop, browser and self-hosted server versions and a REST API. Pick it if your team wants a shared server. [BentoPDF](https://github.com/alam00000/bentopdf) is a client-side PDF toolkit under AGPL-3.0 with a commercial option. Lathe covers images as well as PDFs, adds on-device AI, and is MIT licensed. See the [full comparison](docs/compare.md).
 
 ## Run it yourself
 

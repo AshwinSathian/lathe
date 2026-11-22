@@ -46,7 +46,7 @@ test("the page has no console errors except the blocked Cloudflare script", asyn
   page.on("console", (m) => { if (m.type() === "error") bad.push(m.text()); }); page.on("pageerror", (e) => bad.push(e.message));
   page.on("request", (r) => { if (r.url().includes("/cdn-cgi/challenge-platform")) challenge.push(r.url()); });
   const res = await page.goto("/compress-pdf"); await page.waitForLoadState("networkidle");
-  const html = await res.text(), injected = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]).filter((x) => x.includes("challenge-platform"));
+  const html = await res.text(), injected = [...html.matchAll(/<script>([\s\S]*?)<\/script\b[^>]*>/gi)].map((m) => m[1]).filter((x) => x.includes("challenge-platform"));
   const hashes = injected.map((x) => createHash("sha256").update(x).digest("base64"));
   expect(bad.filter((m) => !(/inline script violates/.test(m) && hashes.some((h) => m.includes(`sha256-${h}`))))).toEqual([]);
   expect(challenge).toEqual([]);

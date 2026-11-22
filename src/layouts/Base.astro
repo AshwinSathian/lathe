@@ -1,10 +1,12 @@
 ---
 import "../styles/global.css";
 import font from "../fonts/bricolage-grotesque.woff2?url";
-interface Props { title: string; description: string; jsonld?: object[]; }
-const { title, description, jsonld = [] } = Astro.props;
+import { siteGraph, version } from "../data/site";
+interface Props { title: string; description: string; jsonld?: object[]; image?: string; imageAlt?: string; modified?: string; markdown?: string; type?: "website" | "article"; }
+const { title, description, jsonld = [], image = "/og.png", imageAlt = "Lathe: image and PDF tools that run in your browser", modified, markdown, type = "website" } = Astro.props;
 const url = new URL(Astro.url.pathname.replace(/\.html$/, "").replace(/\/index$/, "/"), Astro.site).href;
-const og = new URL("/og.png", Astro.site).href;
+const og = new URL(image, Astro.site).href;
+const graph = [siteGraph, ...jsonld];
 ---
 <!doctype html>
 <html lang="en">
@@ -19,23 +21,24 @@ const og = new URL("/og.png", Astro.site).href;
   <link rel="apple-touch-icon" href="/icon-180.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM summary" />
+  {markdown && <link rel="alternate" type="text/markdown" href={markdown} />}
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e8ecf1" />
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101b30" />
-  <meta property="og:type" content="website" /><meta property="og:site_name" content="Lathe" /><meta property="og:title" content={title} /><meta property="og:description" content={description} /><meta property="og:url" content={url} /><meta property="og:image" content={og} /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" />
-  <meta name="twitter:card" content="summary_large_image" /><meta name="twitter:image" content={og} />
-  {jsonld.map((x) => <script is:inline type="application/ld+json" set:html={JSON.stringify(x).replace(/</g, "\\u003c")} />)}
+  <meta name="author" content="Ashwin Sathian" /><meta property="og:locale" content="en" /><meta property="og:type" content={type} /><meta property="og:site_name" content="Lathe" /><meta property="og:title" content={title} /><meta property="og:description" content={description} /><meta property="og:url" content={url} /><meta property="og:image" content={og} /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" /><meta property="og:image:alt" content={imageAlt} />{modified && <meta property="article:modified_time" content={modified} />}
+  <meta name="twitter:card" content="summary_large_image" /><meta name="twitter:image" content={og} /><meta name="twitter:title" content={title} /><meta name="twitter:description" content={description} /><meta name="twitter:image:alt" content={imageAlt} />
+  {graph.map((x) => <script is:inline type="application/ld+json" set:html={JSON.stringify(x).replace(/</g, "\\u003c")} />)}
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="wrap bar">
     <a class="brand" href="/" aria-label="Lathe home"><svg viewBox="0 0 32 32" aria-hidden="true"><defs><linearGradient id="bm" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5d6f8f"/><stop offset=".32" stop-color="#f4f7fb"/><stop offset=".6" stop-color="#8496b4"/><stop offset="1" stop-color="#1c2f52"/></linearGradient></defs><rect width="32" height="32" rx="7" fill="#12203a"/><path d="M4 11h6l2-3h8l2 3h6v10h-6l-2 3h-8l-2-3H4z" fill="url(#bm)"/><path d="M12 8v16M20 8v16" stroke="#c99a45" stroke-width="1.5"/></svg>Lathe</a>
     <nav aria-label="Main">
-      <a href="/#images">Images</a><a href="/#pdf">PDF</a><a href="/privacy">Privacy</a>
+      <a href="/#images">Images</a><a href="/#pdf">PDF</a><a href="/docs">Docs</a><a href="/privacy">Privacy</a>
       <button class="find" type="button" data-palette><span>Find a tool</span><kbd>⌘K</kbd></button>
     </nav>
   </header>
   <main id="main"><slot /></main>
-  <footer class="foot"><div class="wrap"><span>Lathe works on your device. Your files are never uploaded.</span><span><a href="/privacy">How privacy works here</a></span></div></footer>
+  <footer class="foot"><div class="wrap"><span>Lathe {version} works on your device. Your files are never uploaded.</span><nav aria-label="Footer"><a href="/docs">Docs</a><a href="/docs/getting-started">Get started</a><a href="/docs/faq">FAQ</a><a href="/docs/verify-privacy">Verify privacy</a><a href="/docs/limits">Limits</a><a href="/docs/compare">Compare</a><a href="/privacy">Privacy</a><a href="https://github.com/AshwinSathian/lathe" rel="noopener">Source code</a></nav></div></footer>
   <dialog class="palette" aria-label="Find a tool"><input type="search" placeholder="Find a tool, like heic to jpg" aria-label="Find a tool" role="combobox" aria-expanded="true" aria-controls="palette-list" autocomplete="off" /><ul id="palette-list" role="listbox"></ul></dialog>
   <script>import "../app/shell";</script>
 </body>

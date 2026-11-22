@@ -1,0 +1,26 @@
+---
+import Base from "../../layouts/Base.astro";
+import { docPages, docSections, type DocPage } from "../../data/docs";
+import { AUTHOR, SITE, WEBSITE, renderDoc } from "../../data/site";
+export const getStaticPaths = () => docPages.map((d) => ({ params: { slug: d.slug }, props: { d } }));
+const { d } = Astro.props as { d: DocPage };
+const { html, toc, qa, modified } = renderDoc(d), url = `${SITE}/docs/${d.slug}`;
+const ld: object[] = [
+  { "@context": "https://schema.org", "@type": "TechArticle", "@id": `${url}#article`, headline: d.title, description: d.description, url, mainEntityOfPage: url, dateModified: modified, inLanguage: "en", author: AUTHOR, publisher: AUTHOR, isPartOf: WEBSITE, about: { "@type": "SoftwareApplication", name: "Lathe", applicationCategory: "UtilitiesApplication", operatingSystem: "Any modern browser" } },
+  { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [{ "@type": "ListItem", position: 1, name: "Lathe", item: `${SITE}/` }, { "@type": "ListItem", position: 2, name: "Docs", item: `${SITE}/docs` }, { "@type": "ListItem", position: 3, name: d.title, item: url }] },
+];
+if (qa.length) ld.push({ "@context": "https://schema.org", "@type": "FAQPage", mainEntity: qa.map(({ q, a }) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) });
+---
+<Base title={`${d.title} | Lathe`.length > 70 ? d.title : `${d.title} | Lathe`} description={d.description} jsonld={ld} modified={modified} markdown={`/docs/${d.slug}.md`} type="article">
+  <div class="wrap docs">
+    <nav class="docs-nav" aria-label="Documentation">
+      <a class="docs-home" href="/docs">All docs</a>
+      {docSections.map((s) => <div><h2>{s}</h2><ul>{docPages.filter((x) => x.section === s).map((x) => <li><a href={`/docs/${x.slug}`} aria-current={x.slug === d.slug ? "page" : undefined}>{x.title.replace(/^Lathe /, "").replace(/ Lathe$/, "")}</a></li>)}</ul></div>)}
+    </nav>
+    <article class="prose doc">
+      <Fragment set:html={html} />
+      <p class="doc-meta">Last updated <time datetime={modified}>{modified}</time>. <a href={`/docs/${d.slug}.md`}>Read as Markdown</a>. <a href={`https://github.com/AshwinSathian/lathe/edit/main/${d.file}`} rel="noopener">Suggest a change</a>.</p>
+    </article>
+    {toc.length > 2 && <nav class="docs-toc" aria-label="On this page"><h2>On this page</h2><ul>{toc.map((t) => <li><a href={`#${t.id}`}>{t.text}</a></li>)}</ul></nav>}
+  </div>
+</Base>

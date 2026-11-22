@@ -161,6 +161,20 @@ const conv: Tool[] = conversions.map(([from, to, format, what]) => ({
   controls: convertControls,
 }));
 
+/** Plain facts about each format, shown on the conversion pages that involve it. */
+export const FORMAT_FACTS: Record<string, string> = {
+  jpg: "JPG is the most widely supported photo format. Its lossy compression suits photographs, it has no transparency, and each re-save loses a little detail.",
+  png: "PNG is lossless and supports transparency, which makes it the right choice for screenshots, logos and anything you will edit again. Photos saved as PNG are large.",
+  webp: "WebP is a web image format from Google with lossy and lossless modes, transparency and animation. Current browsers display it, though some older software does not.",
+  heic: "HEIC stores images with HEVC compression inside a HEIF container. iPhones have used it by default since iOS 11, and it holds a photo in less space than JPG.",
+  avif: "AVIF stores images with AV1 compression. It reaches very small files and supports transparency and wide colour, but it is slow to encode.",
+  jxl: "JPEG XL is a newer format with lossy and lossless modes, designed as a successor to JPEG. Support across browsers and apps is still limited.",
+  svg: "SVG describes shapes as code rather than pixels, so it stays sharp at any size. It is suited to logos and icons, and can contain scripts.",
+  ico: "ICO is the Windows icon format. One file can hold several sizes, and browsers use it for favicons.",
+  tiff: "TIFF is a flexible format used for scanning, print and archives. Files are often large and can hold several pages.",
+  bmp: "BMP is an old uncompressed bitmap format. It is simple and widely readable, and its files are very large.",
+  gif: "GIF is limited to 256 colours per frame and supports simple animation and one-bit transparency.",
+};
 export const tools: Tool[] = [...base, ...conv];
 export const byId = (id: string) => tools.find((x) => x.id === id);
 export const GROUPS = { image: ["Convert", "Optimise", "Edit", "AI", "Privacy", "Create"], pdf: ["Organise", "Optimise", "Security", "Annotate", "Convert", "Inspect"] } as const;

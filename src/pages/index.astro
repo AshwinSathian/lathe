@@ -31,6 +31,11 @@ const popular = ["heic-to-jpg", "webp-to-png", "png-to-jpg", "jpg-to-heic", "jpg
       {shelf("pdf").map(({ g, items }) => <div class="shelf"><h3>{g}</h3><ul>{items.map((t) => <li><a href={`/${t.id}`}>{t.name}</a></li>)}</ul></div>)}
     </section>
   </div>
+  <section class="wrap about" aria-labelledby="h-about">
+    <h2 id="h-about">What is Lathe?</h2>
+    <p>Lathe is a free, open-source set of {n} image and PDF tools that run entirely in your web browser. It converts, compresses, edits, redacts, signs and encrypts files on your own device using WebAssembly, so your documents are never sent to a server. There is no account or watermark, and the code is MIT licensed.</p>
+    <ul class="guides"><li><a href="/docs/guides/redact-a-pdf">Redact a PDF so the text is really gone</a></li><li><a href="/docs/guides/remove-photo-metadata">Remove GPS location from a photo</a></li><li><a href="/docs/guides/convert-heic">Convert iPhone HEIC photos</a></li><li><a href="/docs/guides/compress-a-pdf">Compress a PDF without damage</a></li><li><a href="/docs/verify-privacy">Verify nothing is uploaded</a></li><li><a href="/docs">All documentation</a></li></ul>
+  </section>
   <div class="wrap proof">
     <div><h2>Private by how it is built</h2><p>Lathe has no server that could receive your files. Once a tool has run, it keeps working with your Wi-Fi off.</p></div>
     <div><h2>Real engines, in a tab</h2><p>MozJPEG, AVIF, JPEG XL, qpdf and PDF.js run as WebAssembly. Photo edits run on your GPU, so sliders respond as you drag.</p></div>

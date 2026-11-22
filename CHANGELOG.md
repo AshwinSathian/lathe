@@ -6,6 +6,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 ### Added
 
+- Documentation at `/docs`, built from the repo's Markdown: guides, FAQ, measured limits, formats, AI models, comparison and a way to verify the no-upload claim yourself
+- A Markdown version of every tool and doc page, `llms-full.txt`, per-tool social cards, a linked structured-data graph and real sitemap dates
+- A daily production check, a rollback runbook and a manual device checklist
 - Each conversion page explains when to use it and what it loses, and links to related conversions
 
 ### Fixed

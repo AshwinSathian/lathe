@@ -1,0 +1,14 @@
+---
+import Base from "../../layouts/Base.astro";
+import { docPages, docSections } from "../../data/docs";
+import { AUTHOR, SITE, WEBSITE } from "../../data/site";
+const description = "Guides and reference for Lathe's private image and PDF tools: redaction, metadata, HEIC, limits, security, self-hosting and how it works.";
+const ld = [{ "@context": "https://schema.org", "@type": "CollectionPage", "@id": `${SITE}/docs#page`, name: "Lathe documentation", description, url: `${SITE}/docs`, isPartOf: WEBSITE, author: AUTHOR, mainEntity: { "@type": "ItemList", itemListElement: docPages.map((d, i) => ({ "@type": "ListItem", position: i + 1, name: d.title, url: `${SITE}/docs/${d.slug}` })) } }];
+---
+<Base title="Lathe documentation and guides" description={description} jsonld={ld}>
+  <div class="wrap docs-index">
+    <h1>Documentation</h1>
+    <p class="lede">How to use Lathe, how it protects your files, and exactly where its limits are.</p>
+    {docSections.map((s) => <section><h2>{s}</h2><ul>{docPages.filter((d) => d.section === s).map((d) => <li><a href={`/docs/${d.slug}`}>{d.title}</a><span>{d.description}</span></li>)}</ul></section>)}
+  </div>
+</Base>
