@@ -114,3 +114,25 @@ for (const [id, params] of [["flatten-pdf", {}], ["resize-pdf", { size: "a4" }],
   const { bytes } = await run(page, id, C("oc-annot.pdf"), params);
   expect((await words(page, bytes)).map((w) => w.s).join(" ")).not.toContain("VISIBLE-ANNOT-TEXT");
 });
+
+for (const [id, params] of [["resize-pdf", { size: "a4" }], ["n-up-pdf", { n: "2" }], ["booklet-pdf", {}]] as const) test(`${id} keeps a hidden layer hidden`, async ({ page }) => {
+  const { bytes, note } = await run(page, id, C("hidden-layer.pdf"), params);
+  expect((await words(page, bytes)).map((w) => w.s).join(" ")).not.toContain("LAYERSECRET");
+  expect(bytes.includes("LAYERSECRET")).toBe(false);
+  expect(note).toMatch(/layers/i);
+});
+for (const file of ["oc-usage.pdf", "oc-malformed.pdf"]) test(`flatten does not bake in an annotation whose visibility is unclear (${file})`, async ({ page }) => {
+  const { bytes, note } = await run(page, "flatten-pdf", C(file));
+  // The layered annotation stays an annotation, so its text is not part of the page content.
+  expect((await words(page, bytes)).map((w) => w.s).join(" ")).not.toContain("VISIBLE-ANNOT-TEXT");
+  expect((await PDFDocument.load(bytes)).getPage(0).node.Annots()?.size()).toBe(2);
+  expect(note).toMatch(/2 annotations/);
+});
+test("flatten removes a hidden field's value from the file", async ({ page }) => {
+  const d = await PDFDocument.load(await hiddenField()), f = d.getForm().getTextField("secret");
+  d.catalog.set(PDFName.of("StructTreeRoot"), d.context.register(d.context.obj({ Type: "StructTreeRoot", K: d.context.obj({ Type: "OBJR", Obj: d.context.getObjectRef(f.acroField.getWidgets()[0].dict) ?? f.acroField.ref }) })));
+  const { bytes } = await run(page, "flatten-pdf", pdf("tagged.pdf", Buffer.from(await d.save({ useObjectStreams: false }))));
+  const { inflateSync } = await import("node:zlib"), text = bytes.toString("latin1"); let found = bytes.includes("HIDDENFIELDVALUE");
+  for (const m of text.matchAll(/stream\r?\n/g)) { const at = m.index + m[0].length, end = bytes.indexOf("endstream", at); try { found ||= inflateSync(bytes.subarray(at, end), { finishFlush: 2 }).includes("HIDDENFIELDVALUE"); } catch { /* Not Flate. */ } }
+  expect(found).toBe(false);
+});

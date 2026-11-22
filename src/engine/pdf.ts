@@ -383,12 +383,16 @@ function layerShown(doc: PDFDocument, oc: unknown): boolean | null {
   if (!d) return true;
   if (!(d instanceof PDFDict)) return null;
   const props = doc.catalog.lookup(PDFName.of("OCProperties")), cfg = props instanceof PDFDict ? props.lookup(PDFName.of("D")) : null;
+  // Usage rules can switch a layer per viewer or event, so its default state proves nothing.
+  const usage = cfg instanceof PDFDict ? cfg.lookup(PDFName.of("AS")) : null;
+  if (usage instanceof PDFArray && usage.size()) return null;
   const listed = (k: string, ref: unknown) => { const a = cfg instanceof PDFDict ? cfg.lookup(PDFName.of(k)) : null; return a instanceof PDFArray && a.asArray().includes(ref as PDFObject); };
   const one = (ref: unknown) => (listed("OFF", ref) ? false : cfg instanceof PDFDict && nameOf(cfg.lookup(PDFName.of("BaseState"))) === "OFF" ? listed("ON", ref) : true);
   if (nameOf(d.lookup(PDFName.of("Type"))) === "OCG") return one(oc);
   if (nameOf(d.lookup(PDFName.of("Type"))) !== "OCMD" || d.has(PDFName.of("VE"))) return null;
   const g = d.get(PDFName.of("OCGs")), list = g instanceof PDFRef && !(doc.context.lookup(g) instanceof PDFArray) ? [g] : (doc.context.lookup(g) as PDFArray)?.asArray?.() ?? [];
   if (!list.length) return true;
+  if (list.some((x) => { const o = x instanceof PDFRef ? doc.context.lookup(x) : null; return !(o instanceof PDFDict) || nameOf(o.lookup(PDFName.of("Type"))) !== "OCG"; })) return null;
   const on = list.map(one), policy = nameOf(d.lookup(PDFName.of("P"))) || "AnyOn";
   return policy === "AllOn" ? on.every(Boolean) : policy === "AnyOff" ? on.some((x) => !x) : policy === "AllOff" ? on.every((x) => !x) : on.some(Boolean);
 }
@@ -403,6 +407,8 @@ function flattenAnnots(doc: PDFDocument) {
     const kept: PDFObject[] = [];
     for (let i = 0; i < annots.size(); i++) {
       const a = annots.lookup(i); if (!(a instanceof PDFDict)) continue;
+      // A flattened field's value must not outlive it, for example through a tagged PDF's structure tree.
+      if (nameOf(a.lookup(PDFName.of("Subtype"))) === "Widget") for (let x: PDFDict | undefined = a, hops = 0; x && hops < 32; x = x.lookup(PDFName.of("Parent")) as PDFDict, hops++) { x.delete(PDFName.of("V")); x.delete(PDFName.of("DV")); }
       if (numOf(a, "F") & 0b100010) continue; // Hidden or NoView
       const keep = () => { if (nameOf(a.lookup(PDFName.of("Subtype"))) !== "Widget") kept.push(annots.get(i)); };
       const shown = a.has(PDFName.of("OC")) ? layerShown(doc, a.get(PDFName.of("OC"))) : true;
@@ -555,6 +561,16 @@ function stillInside(doc: PDFDocument) {
   const script = doc.catalog.has(PDFName.of("OpenAction")) || (names instanceof PDFDict && names.has(PDFName.of("JavaScript"))) || objs.some((o) => o instanceof PDFDict && nameOf(o.lookup(PDFName.of("S"))) === "JavaScript");
   return [comment ? "comments" : "", ...readTraits(doc, false).rich, script ? "scripts" : "", doc.catalog.has(PDFName.of("OCProperties")) ? "layer names" : ""].filter(Boolean);
 }
+/**
+ * Opens a file for tools that redraw pages onto new sheets. The new file cannot carry layer settings, so a file with
+ * layers is rebuilt from what a reader sees first, or its hidden layers would become visible.
+ */
+async function openForLayout(f: In, ctx: Ctx) {
+  const opened = await open(f);
+  if (!opened.doc.catalog.has(PDFName.of("OCProperties"))) { flattenAnnots(opened.doc); return { doc: opened.doc, note: "" }; }
+  const doc = await PDFDocument.load(await asImages(opened.bytes, ctx));
+  return { doc, note: "This file has layers, so its pages were rebuilt as images to keep hidden layers hidden." };
+}
 /** Draws what a reader sees of a page, whatever its crop box and rotation, with its lower left corner at x, y. */
 async function drawVisible(d: PDFDocument, sheet: PDFPage, src: PDFPage, x: number, y: number, k: number) {
   const c = src.getCropBox(), r = ((src.getRotation().angle % 360) + 360) % 360, ew = c.width * k, eh = c.height * k;
@@ -676,14 +692,14 @@ export const pdfTools: Record<string, Run> = disclosed({
     return out(`${stem(f.name)}-rotated.pdf`, await saved(doc));
   }),
   "resize-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
-    const { doc } = await open(f), d = await PDFDocument.create(), [a, b] = SIZES[p.size], m = p.margin;
-    flattenAnnots(doc); // An embedded page drops its annotations, so filled-in values are baked in first.
+    // An embedded page drops its annotations, so filled-in values are baked in first.
+    const { doc, note } = await openForLayout(f, ctx), d = await PDFDocument.create(), [a, b] = SIZES[p.size], m = p.margin;
     for (const src of doc.getPages()) {
       const v = visual(src), land = p.orient === "landscape" || (p.orient === "auto" && v.W > v.H), [W, H] = land ? [b, a] : [a, b];
       const k = Math.min((W - 2 * m) / v.W, (H - 2 * m) / v.H), pg = d.addPage([W, H]);
       await drawVisible(d, pg, src, (W - v.W * k) / 2, (H - v.H * k) / 2, k);
     }
-    return out(`${stem(f.name)}-${p.size}.pdf`, await saved(d));
+    return out(`${stem(f.name)}-${p.size}.pdf`, await saved(d), note || undefined);
   }),
   "crop-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc, bytes } = await open(f), pages = doc.getPages();
@@ -705,10 +721,9 @@ export const pdfTools: Record<string, Run> = disclosed({
     return out(`${stem(f.name)}-cropped.pdf`, await saved(doc));
   }),
   "n-up-pdf": async ([f], p, ctx) => {
-    const { doc } = await open(f), d = await PDFDocument.create(), n = +p.n, [cols, rows] = ({ 2: [2, 1], 4: [2, 2], 6: [3, 2], 9: [3, 3] } as Record<number, number[]>)[n];
+    const { doc, note } = await openForLayout(f, ctx), d = await PDFDocument.create(), n = +p.n, [cols, rows] = ({ 2: [2, 1], 4: [2, 2], 6: [3, 2], 9: [3, 3] } as Record<number, number[]>)[n];
     const src = doc.getPages(), landscape = n === 2 || n === 6, [a, b] = SIZES[p.size], [W, H] = landscape ? [b, a] : [a, b], m = 18, cw = (W - 2 * m - (cols - 1) * p.gap) / cols, ch = (H - 2 * m - (rows - 1) * p.gap) / rows;
     let sheet: PDFPage;
-    flattenAnnots(doc);
     for (let i = 0; i < src.length; i++) {
       ctx.progress(i / src.length, `Page ${i + 1} of ${src.length}`);
       if (i % n === 0) sheet = d.addPage([W, H]);
@@ -716,11 +731,10 @@ export const pdfTools: Record<string, Run> = disclosed({
       await drawVisible(d, sheet, src[i], x, y, k);
       if (p.border) sheet.drawRectangle({ x, y, width: v.W * k, height: v.H * k, borderColor: rgb(0.6, 0.6, 0.6), borderWidth: 0.5 });
     }
-    return [out(`${stem(f.name)}-${n}up.pdf`, await saved(d), `${d.getPageCount()} sheets`)];
+    return [out(`${stem(f.name)}-${n}up.pdf`, await saved(d), `${d.getPageCount()} sheets.${note ? ` ${note}` : ""}`)];
   },
   "booklet-pdf": async ([f], p, ctx) => {
-    const { doc } = await open(f), d = await PDFDocument.create(), src = doc.getPages(), total = Math.ceil(src.length / 4) * 4, [a, b] = SIZES[p.size], W = b, H = a, cw = W / 2;
-    flattenAnnots(doc);
+    const { doc, note } = await openForLayout(f, ctx), d = await PDFDocument.create(), src = doc.getPages(), total = Math.ceil(src.length / 4) * 4, [a, b] = SIZES[p.size], W = b, H = a, cw = W / 2;
     const place = async (sheet: PDFPage, idx: number, left: boolean) => {
       if (idx >= src.length) return;
       const v = visual(src[idx]), k = Math.min(cw / v.W, H / v.H);
@@ -731,7 +745,7 @@ export const pdfTools: Record<string, Run> = disclosed({
       const sheet = d.addPage([W, H]);
       if (i % 2 === 0) { await place(sheet, total - 1 - i, true); await place(sheet, i, false); } else { await place(sheet, i, true); await place(sheet, total - 1 - i, false); }
     }
-    return [out(`${stem(f.name)}-booklet.pdf`, await saved(d), `${total / 4} sheets. Print double-sided, flip on the short edge.`)];
+    return [out(`${stem(f.name)}-booklet.pdf`, await saved(d), `${total / 4} sheets. Print double-sided, flip on the short edge.${note ? ` ${note}` : ""}`)];
   },
 
   "compress-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
