@@ -111,9 +111,8 @@ function pageStreams(doc: PDFDocument, page: PDFPage) {
       stack.push(o);
     } else if (v instanceof PDFArray) stack.push(...v.asArray());
     else if (v instanceof PDFDict) {
-      const d = v instanceof PDFStream ? v.dict : v;
-      if (nameOf(d.lookup(PDFName.of("Type"))) === "Font" && nameOf(d.lookup(PDFName.of("Subtype"))) !== "Type3") continue;
-      for (const [k, x] of d.entries()) if (!skip.includes(k)) stack.push(x);
+      if (nameOf(v.lookup(PDFName.of("Type"))) === "Font" && nameOf(v.lookup(PDFName.of("Subtype"))) !== "Type3") continue;
+      for (const [k, x] of v.entries()) if (!skip.includes(k)) stack.push(x);
     } else if (v instanceof PDFStream) stack.push(v.dict);
   }
   return found;
