@@ -93,40 +93,43 @@ async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[]) {
   } finally { undo.forEach((f) => f()); }
 }
 const copy = async (src: PDFDocument, idx: number[]) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx)).forEach((x) => d.addPage(x)); return d; };
-/** Colour profiles are recognised by their file signature, never by the name they are stored under. */
-function isIccProfile(o: PDFStream) {
-  if (!o.dict.has(PDFName.of("N"))) return false;
-  try { const b = o instanceof PDFRawStream ? decodePDFRawStream(o).decode() : o.getContents(); return String.fromCharCode(...b.subarray(36, 40)) === "acsp"; }
-  catch { return false; }
+/** The real page tree, found by walking from the pages themselves, so a /Type label in the file cannot fake a stopping point. */
+function pageTree(doc: PDFDocument) {
+  const tree = new Set<unknown>();
+  for (const page of doc.getPages()) {
+    tree.add(page.ref);
+    for (let up = page.node.get(PDFName.of("Parent")); up instanceof PDFRef && !tree.has(up); up = (doc.context.lookup(up) as PDFDict)?.get(PDFName.of("Parent"))) tree.add(up);
+  }
+  return tree;
 }
 /**
- * Every stream a page can show: content, images, forms, patterns, annotation appearances and Type 3 glyphs.
- * Follows every key, because resource names such as /P are chosen by the file. Stops only at the page tree,
- * ordinary font dictionaries and colour profiles, which hold no page content and are shared by design.
+ * Streams reachable from a page. With `shown`, only what the page can display: ordinary fonts and ICC profiles are
+ * left out, because documents share them by design and they hold no page content. Without it, nothing is left out.
+ * Comparing a kept page's full set with a redacted page's shown set means a mislabelled object cannot hide a stream.
  */
-function pageStreams(doc: PDFDocument, page: PDFPage) {
+function pageStreams(doc: PDFDocument, page: PDFPage, tree: Set<unknown>, shown: boolean) {
   const found = new Set<PDFRef>(), seen = new Set<unknown>(), parent = PDFName.of("Parent");
   const stack: unknown[] = [...page.node.entries().filter(([k]) => k !== parent).map(([, v]) => v), page.node.Resources()];
   while (stack.length) {
     const v = stack.pop();
-    if (!v || seen.has(v)) continue;
+    if (!v || seen.has(v) || tree.has(v)) continue;
     seen.add(v);
     if (v instanceof PDFRef) {
       const o = doc.context.lookup(v);
-      if (isPage(o) || (o instanceof PDFDict && nameOf(o.lookup(PDFName.of("Type"))) === "Pages")) continue;
-      if (o instanceof PDFStream) { if (isIccProfile(o)) continue; found.add(v); }
+      if (o instanceof PDFStream) found.add(v);
       stack.push(o);
-    } else if (v instanceof PDFArray) stack.push(...v.asArray());
-    else if (v instanceof PDFStream) stack.push(...v.dict.values());
+    } else if (v instanceof PDFArray) {
+      if (!(shown && v.size() === 2 && v.lookup(0) === PDFName.of("ICCBased"))) stack.push(...v.asArray());
+    } else if (v instanceof PDFStream) stack.push(...v.dict.values());
     else if (v instanceof PDFDict) {
-      if (nameOf(v.lookup(PDFName.of("Type"))) === "Font" && nameOf(v.lookup(PDFName.of("Subtype"))) !== "Type3") continue;
+      if (shown && nameOf(v.lookup(PDFName.of("Type"))) === "Font" && nameOf(v.lookup(PDFName.of("Subtype"))) !== "Type3") continue;
       stack.push(...v.values());
     }
   }
   return found;
 }
-/** A kept page that can reach anything from a redacted page is flattened, because it might show only part of it. */
-const sharesHidden = (doc: PDFDocument, page: PDFPage, hidden: Set<PDFRef>) => [...pageStreams(doc, page)].some((x) => hidden.has(x));
+/** A kept page that can reach anything a redacted page shows is flattened, because it might show only part of it. */
+const sharesHidden = (doc: PDFDocument, page: PDFPage, hidden: Set<PDFRef>, tree: Set<unknown>) => [...pageStreams(doc, page, tree, false)].some((x) => hidden.has(x));
 
 const render = (ctx: Ctx, bytes: Uint8Array, key: string, page: number, dpi: number, gray = false) => ctx.main<ImageBitmap>("render", { doc: new Blob([bytes as BlobPart]), key, page, dpi, gray });
 const toImg = (b: ImageBitmap) => { const c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(b, 0, 0); return g.getImageData(0, 0, c.width, c.height); };
@@ -524,10 +527,10 @@ export const pdfTools: Record<string, Run> = {
     const regions: any[] = p.regions ?? [];
     if (!regions.length) throw new Say("Draw at least one box over what you want removed.");
     const { doc, bytes } = await open(f), d = await PDFDocument.create(), n = doc.getPageCount();
-    const hidden = new Set(regions.flatMap((r) => [...pageStreams(doc, doc.getPage(r.page))]));
+    const tree = pageTree(doc), hidden = new Set(regions.flatMap((r) => [...pageStreams(doc, doc.getPage(r.page), tree, true)]));
     for (let i = 0; i < n; i++) {
       const here = regions.filter((r) => r.page === i);
-      if (!here.length && !sharesHidden(doc, doc.getPage(i), hidden)) { const [pg] = await copyOnly(d, doc, [i]); d.addPage(pg); continue; }
+      if (!here.length && !sharesHidden(doc, doc.getPage(i), hidden, tree)) { const [pg] = await copyOnly(d, doc, [i]); d.addPage(pg); continue; }
       ctx.progress(i / n, `Redacting page ${i + 1}`);
       const b = await render(ctx, bytes, f.id, i, p.dpi), c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true });
       g.drawImage(b, 0, 0); g.fillStyle = "#000";

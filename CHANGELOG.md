@@ -2,6 +2,12 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [0.1.3] - 2026-11-22
+
+### Security
+
+- Redaction no longer trusts `/Type` labels when deciding what a kept page can reach, so a mislabelled object cannot carry hidden content into the output
+
 ## [0.1.2] - 2026-11-22
 
 ### Security
@@ -41,6 +47,7 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[0.1.3]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.3
 [0.1.2]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.2
 [0.1.1]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.1
 [0.1.0]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.0

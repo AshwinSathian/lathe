@@ -126,6 +126,16 @@ for (const name of ["P", "Parent", "Metadata", "ColorSpace"]) test(`redaction is
   for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
   expect(same).toBe(0);
 });
+for (const [label, wrap] of [["a font", { Type: "Font", Subtype: "TrueType", BaseFont: "Fake" }], ["a page tree node", { Type: "Pages", Count: 0 }], ["a page", { Type: "Page" }]] as const) test(`redaction is not fooled by a hidden image inside a dictionary labelled as ${label}`, async ({ page }) => {
+  const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
+  a.drawImage(jpg, { x: 0, y: 0, width: 300, height: 300 }); await d.flush();
+  const fake = d.context.register(d.context.obj({ ...wrap, Extra: jpg.ref }));
+  b.node.Resources().set(PDFName.of("Properties"), d.context.obj({ MC0: fake }));
+  const out = await run(page, "redact-pdf", file("fake.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const o = await PDFDocument.load(out); let same = 0;
+  for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
+  expect(same).toBe(0);
+});
 test("redaction keeps pages selectable when they share only a colour profile", async ({ page }) => {
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica), icc = new Uint8Array(128); icc.set([0x61, 0x63, 0x73, 0x70], 36);
   const profile = d.context.register(d.context.stream(icc, { N: 3 }));
