@@ -17,7 +17,7 @@ npm run dev        # http://localhost:4340
 ## Checks
 
 ```bash
-npm run check      # types
+npm run check      # types: TypeScript 7 for .ts, TypeScript 6 for .astro
 npm run build
 npm test           # every tool in Chromium, Firefox and WebKit
 npm run docs       # regenerate the tool list and licence notices

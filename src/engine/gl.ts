@@ -42,7 +42,7 @@ let gl: WebGL2RenderingContext, prog: WebGLProgram, canvas: OffscreenCanvas;
 function setup() {
   canvas = new OffscreenCanvas(1, 1);
   gl = canvas.getContext("webgl2", { premultipliedAlpha: true, preserveDrawingBuffer: true }) as WebGL2RenderingContext;
-  if (!gl) throw new Error("WebGL2 is not available in this browser.");
+  if (!gl) return;
   const sh = (type: number, src: string) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
   prog = gl.createProgram();
   gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS)); gl.linkProgram(prog); gl.useProgram(prog);
@@ -54,11 +54,45 @@ function setup() {
   for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
 }
 
+const toLinear = Float32Array.from({ length: 256 }, (_, i) => { const c = i / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+const gamma = (c: number) => { c = c < 0 ? 0 : c > 1 ? 1 : c; return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055; };
+const unit = (c: number) => (c < 0 ? 0 : c > 1 ? 1 : c);
+const smooth = (a: number, z: number, x: number) => { const t = unit((x - a) / (z - a)); return t * t * (3 - 2 * t); };
+
+/** The fragment shader above, line for line, for browsers without WebGL2. */
+function shadeCpu(img: ImageData, v: Record<string, number>, cvd: string): ImageData {
+  const { width: w, height: h, data: d } = img, out = new Uint8ClampedArray(d.length), m = CVD[cvd], gain = 2 ** (v.exposure ?? 0);
+  const [contrast, highlights, shadows, temp, tint, sat, vib, sharpen, vignette, grain] = ["contrast", "highlights", "shadows", "temperature", "tint", "saturation", "vibrance", "sharpen", "vignette", "grain"].map((k) => (v[k] ?? 0) / 100);
+  const wr = 1 + temp * 0.28 + tint * 0.1, wg = 1 - Math.abs(temp) * 0.03 - tint * 0.2, wb = 1 - temp * 0.28 + tint * 0.1, slope = contrast >= 0 ? 1 + contrast * 1.4 : 1 + contrast * 0.85;
+  const pre = (i: number, c: number) => (d[i + c] * d[i + 3]) / 65025;
+  for (let y = 0, i = 0; y < h; y++) for (let x = 0; x < w; x++, i += 4) {
+    let r: number, g: number, b: number;
+    if (sharpen > 0) {
+      const l = x ? i - 4 : i, e = x < w - 1 ? i + 4 : i, u = y ? i - w * 4 : i, n = y < h - 1 ? i + w * 4 : i, q = sharpen * 2.5;
+      const edge = (c: number) => d[i + c] / 255 + (pre(i, c) - (pre(l, c) + pre(e, c) + pre(u, c) + pre(n, c)) * 0.25) * q;
+      r = linear(unit(edge(0))); g = linear(unit(edge(1))); b = linear(unit(edge(2)));
+    } else { r = toLinear[d[i]]; g = toLinear[d[i + 1]]; b = toLinear[d[i + 2]]; }
+    r *= gain * wr; g *= gain * wg; b *= gain * wb;
+    let l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const dark = 1 - unit(l * 2.2), lift = 1 + shadows * 0.9 * dark * dark + highlights * 0.6 * smooth(0.35, 1, l);
+    r = unit((gamma(r * lift) - 0.5) * slope + 0.5); g = unit((gamma(g * lift) - 0.5) * slope + 0.5); b = unit((gamma(b * lift) - 0.5) * slope + 0.5);
+    l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    const k = 1 + sat + vib * (1 - (Math.max(r, g, b) - Math.min(r, g, b))) * 1.1;
+    r = l + (r - l) * k; g = l + (g - l) * k; b = l + (b - l) * k;
+    if (vignette > 0) { const f = 1 - vignette * smooth(0.25, 0.8, Math.hypot((x + 0.5) / w - 0.5, (y + 0.5) / h - 0.5) * 1.25); r *= f; g *= f; b *= f; }
+    if (grain > 0) { const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453, t = (s - Math.floor(s) - 0.5) * grain * 0.22; r += t; g += t; b += t; }
+    const R = linear(unit(r)), G = linear(unit(g)), B = linear(unit(b));
+    out[i] = gamma(m[0] * R + m[1] * G + m[2] * B) * 255 + 0.5; out[i + 1] = gamma(m[3] * R + m[4] * G + m[5] * B) * 255 + 0.5; out[i + 2] = gamma(m[6] * R + m[7] * G + m[8] * B) * 255 + 0.5; out[i + 3] = d[i + 3];
+  }
+  return new ImageData(out, w, h);
+}
+
 export function shade(img: ImageData, v: Record<string, number>, cvd = "none"): ImageData {
   if (!gl) setup();
   const { width: w, height: h } = img;
-  const max = gl.getParameter(gl.MAX_TEXTURE_SIZE);
-  if (w > max || h > max) throw new Error(`This GPU handles images up to ${max} px. Resize first.`);
+  // No WebGL2, or an image larger than the GPU accepts: the same maths runs on the CPU.
+  if (!gl || w > gl.getParameter(gl.MAX_TEXTURE_SIZE) || h > gl.getParameter(gl.MAX_TEXTURE_SIZE)) return shadeCpu(img, v, cvd);
   canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h);
   gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.length));

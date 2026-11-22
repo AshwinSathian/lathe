@@ -1,4 +1,4 @@
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFString, PDFHexString, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFPage } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFHexString, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFPage } from "pdf-lib";
 import { unzlibSync } from "fflate";
 import { Say, bytesOf, pagesIn, parseRanges, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
 import { EXT, MIME, encode, load as loadImage, sniff } from "./codecs";
@@ -50,7 +50,48 @@ const each = async (files: In[], ctx: Ctx, fn: (f: In) => Promise<Out | Out[]>) 
   for (let i = 0; i < files.length; i++) { if (files.length > 1) ctx.progress(i / files.length, `${files[i].name} (${i + 1} of ${files.length})`); res.push(...[await fn(files[i])].flat()); }
   return res;
 };
-const copy = async (src: PDFDocument, idx: number[]) => { const d = await PDFDocument.create(); (await d.copyPages(src, idx)).forEach((x) => d.addPage(x)); return d; };
+
+const isPage = (o: unknown) => o instanceof PDFDict && nameOf(o.lookup(PDFName.of("Type"))) === "Page";
+/** True when following this object's references reaches a page outside `keep`. */
+function reachesOther(ctx: PDFDocument["context"], start: unknown, keep: Set<PDFRef>) {
+  const seen = new Set<unknown>(), stack = [start];
+  while (stack.length) {
+    const v = stack.pop();
+    if (seen.has(v)) continue;
+    seen.add(v);
+    if (v instanceof PDFRef) { if (isPage(ctx.lookup(v))) { if (!keep.has(v)) return true; continue; } stack.push(ctx.lookup(v)); }
+    else if (v instanceof PDFArray) stack.push(...v.asArray());
+    else if (v instanceof PDFStream) stack.push(v.dict);
+    else if (v instanceof PDFDict) stack.push(...v.values());
+  }
+  return false;
+}
+
+/**
+ * Copies pages without what they link to. pdf-lib follows every reference, so a link, form field or article
+ * thread on a kept page would otherwise carry a removed page, with its text, into the output.
+ */
+async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[]) {
+  const pages = src.getPages(), keep = new Set(idx.map((i) => pages[i].ref)), undo: (() => void)[] = [];
+  for (const i of new Set(idx)) {
+    const node = pages[i].node;
+    for (const key of ["B", "AA"].map((k) => PDFName.of(k))) { const was = node.get(key); if (was) { node.delete(key); undo.push(() => node.set(key, was)); } }
+    const annots = node.Annots();
+    if (!annots) continue;
+    const safe = annots.asArray().filter((a) => !reachesOther(src.context, a instanceof PDFRef ? src.context.lookup(a) : a, keep));
+    if (safe.length === annots.size()) continue;
+    const key = PDFName.of("Annots"), was = node.get(key);
+    node.set(key, src.context.obj(safe)); undo.push(() => node.set(key, was));
+  }
+  try {
+    const copied = await d.copyPages(src, idx), known = new Set([...d.getPages(), ...copied].map((x) => x.ref));
+    // Fail closed: if a page from outside the selection still got through, write nothing.
+    for (const [ref, o] of d.context.enumerateIndirectObjects()) if (isPage(o) && !known.has(ref)) throw new Say("This PDF links its pages in a way Lathe cannot separate safely, so no file was written.");
+    return copied;
+  } finally { undo.forEach((f) => f()); }
+}
+const copy = async (src: PDFDocument, idx: number[]) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx)).forEach((x) => d.addPage(x)); return d; };
+const xobjects = (page: PDFPage) => { const r = page.node.Resources()?.lookup(PDFName.of("XObject")); return new Set(r instanceof PDFDict ? r.values().filter((v) => v instanceof PDFRef) : []); };
 
 const render = (ctx: Ctx, bytes: Uint8Array, key: string, page: number, dpi: number, gray = false) => ctx.main<ImageBitmap>("render", { doc: new Blob([bytes as BlobPart]), key, page, dpi, gray });
 const toImg = (b: ImageBitmap) => { const c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true }); g.drawImage(b, 0, 0); return g.getImageData(0, 0, c.width, c.height); };
@@ -149,6 +190,15 @@ function flattenAnnots(doc: PDFDocument) {
   doc.catalog.delete(PDFName.of("AcroForm"));
 }
 
+/** Web and mail links only, hex-encoded so a crafted URL cannot break out of the PDF string. */
+function safeUri(href: string) {
+  try {
+    const u = new URL(href);
+    if (!["http:", "https:", "mailto:"].includes(u.protocol)) return null;
+    return PDFHexString.of([...new TextEncoder().encode(u.href)].map((b) => b.toString(16).padStart(2, "0")).join(""));
+  } catch { return null; }
+}
+
 async function markdownPdf(md: string, p: any) {
   const { marked } = await import("marked");
   const doc = await PDFDocument.create(), [PW, PH] = SIZES[p.size], M = 64, W = PW - 2 * M;
@@ -179,8 +229,9 @@ async function markdownPdf(md: string, p: any) {
       for (const w of line) {
         const s = w.c ? size * 0.88 : size, tw = w.f.widthOfTextAtSize(w.t, s);
         if (!/^\s+$/.test(w.t)) page.drawText(w.t, { x, y: y - size, size: s, font: w.f, color: w.href ? rgb(0.75, 0.25, 0.05) : rgb(0.1, 0.09, 0.08) });
-        if (w.href && !/^\s+$/.test(w.t)) {
-          const link = doc.context.register(doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: [x, y - size - 2, x + tw, y], Border: [0, 0, 0], A: { Type: "Action", S: "URI", URI: PDFString.of(w.href) } }));
+        const uri = w.href && !/^\s+$/.test(w.t) ? safeUri(w.href) : null;
+        if (uri) {
+          const link = doc.context.register(doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: [x, y - size - 2, x + tw, y], Border: [0, 0, 0], A: { Type: "Action", S: "URI", URI: uri } }));
           page.node.addAnnot(link);
         }
         x += tw;
@@ -287,7 +338,7 @@ export const pdfTools: Record<string, Run> = {
     if (!order.length) throw new Say("Keep at least one page.");
     for (let i = 0; i < order.length; i++) {
       const o = order[i]; ctx.progress(i / order.length, "Arranging pages");
-      const [pg] = await d.copyPages(docs[o.f], [o.page]);
+      const [pg] = await copyOnly(d, docs[o.f], [o.page]);
       if (o.rot) pg.setRotation(degrees((pg.getRotation().angle + o.rot) % 360));
       d.addPage(pg);
     }
@@ -424,9 +475,12 @@ export const pdfTools: Record<string, Run> = {
     const regions: any[] = p.regions ?? [];
     if (!regions.length) throw new Say("Draw at least one box over what you want removed.");
     const { doc, bytes } = await open(f), d = await PDFDocument.create(), n = doc.getPageCount();
+    const hidden = new Set(regions.flatMap((r) => [...xobjects(doc.getPage(r.page))]));
     for (let i = 0; i < n; i++) {
       const here = regions.filter((r) => r.page === i);
-      if (!here.length) { const [pg] = await d.copyPages(doc, [i]); d.addPage(pg); continue; }
+      // Pages can share one resource dictionary, so a kept page may carry an image from a redacted page. Flatten it too.
+      const shares = !here.length && [...xobjects(doc.getPage(i))].some((x) => hidden.has(x));
+      if (!here.length && !shares) { const [pg] = await copyOnly(d, doc, [i]); d.addPage(pg); continue; }
       ctx.progress(i / n, `Redacting page ${i + 1}`);
       const b = await render(ctx, bytes, f.id, i, p.dpi), c = new OffscreenCanvas(b.width, b.height), g = c.getContext("2d", { willReadFrequently: true });
       g.drawImage(b, 0, 0); g.fillStyle = "#000";
@@ -441,9 +495,14 @@ export const pdfTools: Record<string, Run> = {
     if (p.wipe) {
       const info = doc.context.trailerInfo.Info;
       if (info) { doc.context.delete(info as PDFRef); doc.context.trailerInfo.Info = undefined; }
-      const m = doc.catalog.get(PDFName.of("Metadata"));
-      if (m instanceof PDFRef) doc.context.delete(m);
-      doc.catalog.delete(PDFName.of("Metadata"));
+      // XMP and application data can sit on any page, image or font, so every object is checked.
+      const keys = ["Metadata", "PieceInfo"].map((k) => PDFName.of(k));
+      for (const [ref, o] of doc.context.enumerateIndirectObjects()) {
+        const d = o instanceof PDFStream ? o.dict : o instanceof PDFDict ? o : null;
+        if (!d) continue;
+        if (nameOf(d.lookup(PDFName.of("Type"))) === "Metadata") { doc.context.delete(ref); continue; }
+        for (const k of keys) { const v = d.get(k); if (v instanceof PDFRef) doc.context.delete(v); d.delete(k); }
+      }
     } else {
       if (p.title) doc.setTitle(p.title); if (p.author) doc.setAuthor(p.author); if (p.subject) doc.setSubject(p.subject);
       if (p.keywords) doc.setKeywords(p.keywords.split(",").map((x: string) => x.trim()));
@@ -579,7 +638,7 @@ export const pdfTools: Record<string, Run> = {
     const [a, b] = await Promise.all([open(files[0]), open(files[1])]), n = Math.max(a.doc.getPageCount(), b.doc.getPageCount()), d = await PDFDocument.create(), [R, G, B] = [parseInt(p.color.slice(1, 3), 16), parseInt(p.color.slice(3, 5), 16), parseInt(p.color.slice(5, 7), 16)], changed: number[] = [];
     for (let i = 0; i < n; i++) {
       ctx.progress(i / n, `Comparing page ${i + 1} of ${n}`);
-      if (i >= a.doc.getPageCount() || i >= b.doc.getPageCount()) { changed.push(i + 1); const from = i < a.doc.getPageCount() ? a.doc : b.doc, [pg] = await d.copyPages(from, [i]); d.addPage(pg); continue; }
+      if (i >= a.doc.getPageCount() || i >= b.doc.getPageCount()) { changed.push(i + 1); const from = i < a.doc.getPageCount() ? a.doc : b.doc, [pg] = await copyOnly(d, from, [i]); d.addPage(pg); continue; }
       const x = await render(ctx, a.bytes, files[0].id, i, p.dpi), y = await render(ctx, b.bytes, files[1].id, i, p.dpi), w = Math.max(x.width, y.width), h = Math.max(x.height, y.height);
       const paint = (s: ImageBitmap) => { const c = new OffscreenCanvas(w, h), g = c.getContext("2d", { willReadFrequently: true }); g.fillStyle = "#fff"; g.fillRect(0, 0, w, h); g.drawImage(s, 0, 0); return g.getImageData(0, 0, w, h); };
       const P = paint(x), Q = paint(y); let diff = 0;

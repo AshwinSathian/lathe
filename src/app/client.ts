@@ -148,6 +148,7 @@ export async function stash(files: File[]) {
   await new Promise((res, rej) => { const t = d.transaction("handoff", "readwrite"); t.objectStore("handoff").put(items, "files"); t.oncomplete = res; t.onerror = t.onabort = () => rej(t.error); });
   d.close();
 }
+export async function clearStash() { const d = await db(); await new Promise((res) => { const t = d.transaction("handoff", "readwrite"); t.objectStore("handoff").delete("files"); t.oncomplete = t.onerror = t.onabort = res; }); d.close(); }
 export async function unstash(): Promise<File[]> {
   const d = await db();
   const items = await new Promise<any[]>((res, rej) => { const t = d.transaction("handoff", "readwrite"), s = t.objectStore("handoff"), g = s.get("files"); g.onsuccess = () => { s.delete("files"); }; t.oncomplete = () => res(g.result ?? []); t.onerror = t.onabort = () => rej(t.error); });

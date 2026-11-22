@@ -37,12 +37,13 @@
     "preview": "astro preview --port 4341",
     "test": "playwright test",
     "vendor": "node scripts/vendor.mjs",
-    "check": "astro check",
+    "check": "npm run check:ts && astro check",
     "deploy": "npm run check && npm run build && playwright test && wrangler deploy",
     "smoke": "LATHE_URL=https://lathe.ashwinsathian.com playwright test tests/tools.spec.ts tests/interaction.spec.ts tests/live.spec.ts",
     "docs": "node scripts/gen-docs.mjs",
     "check:docs": "node scripts/gen-docs.mjs --check",
-    "media": "node scripts/media.mjs"
+    "media": "node scripts/media.mjs",
+    "check:ts": "node node_modules/typescript-native/bin/tsc --noEmit"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.6",
@@ -74,6 +75,7 @@
     "@playwright/test": "^1.65.1",
     "sharp": "^0.35.5",
     "typescript": "^6.0.3",
+    "typescript-native": "npm:typescript@^7.0.2",
     "wrangler": "^4.166.0"
   }
 }

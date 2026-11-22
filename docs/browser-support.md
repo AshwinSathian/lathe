@@ -13,4 +13,6 @@ The automated suite runs in Chromium, Firefox and WebKit builds from Playwright.
 
 Playwright's Chromium has no HEVC encoder. Branded Chrome and Edge may have one, depending on the operating system and hardware. Lathe asks the browser at run time and shows a message if it cannot encode.
 
+Photo tools use WebGL2 when it is available and the same calculation on the CPU when it is not, so they are slower on those browsers.
+
 Very large files are limited by your device's memory and by the 4 GB ceiling of 32-bit WebAssembly.

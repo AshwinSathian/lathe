@@ -42,35 +42,49 @@ async function hide(img: ImageData, boxes: { x: number; y: number; w: number; h:
   return dataOf(c);
 }
 
+const joined = (parts: Uint8Array[]) => { const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0)); let at = 0; for (const p of parts) { out.set(p, at); at += p.length; } return out; };
+
+/**
+ * Removes metadata without touching the compressed pixels, or returns null so the caller re-encodes.
+ * Walks every scan to the real end of the image, so markers between scans and anything appended after it are dropped.
+ */
 function stripJpeg(b: Uint8Array) {
-  const parts: Uint8Array[] = [b.subarray(0, 2)];
+  if (b[0] !== 0xff || b[1] !== 0xd8) return null;
+  const parts: Uint8Array[] = [b.subarray(0, 2)], text = (at: number, n: number) => String.fromCharCode(...b.subarray(at, at + n));
   let i = 2;
-  while (i + 4 <= b.length && b[i] === 0xff) {
+  while (i + 1 < b.length) {
+    if (b[i] !== 0xff) return null;
+    while (b[i + 1] === 0xff) i++;
     const m = b[i + 1];
-    if (m === 0xda) break;
-    const len = (b[i + 2] << 8) | b[i + 3];
-    const app2Icc = m === 0xe2 && String.fromCharCode(...b.subarray(i + 4, i + 15)) === "ICC_PROFILE";
-    const keep = !((m >= 0xe1 && m <= 0xef && !app2Icc) || m === 0xfe);
-    if (keep) parts.push(b.subarray(i, i + 2 + len));
-    i += 2 + len;
+    if (m === 0xd9) { parts.push(b.subarray(i, i + 2)); return joined(parts); }
+    if (m === 0 || m === 0x01 || (m >= 0xd0 && m <= 0xd8) || i + 4 > b.length) return null;
+    const len = (b[i + 2] << 8) | b[i + 3], end = i + 2 + len;
+    if (len < 2 || end > b.length) return null;
+    const isApp = m >= 0xe0 && m <= 0xef;
+    // Kept only if decoding depends on them: plain JFIF without a thumbnail, the colour profile, and Adobe's colour transform.
+    const keep = !isApp && m !== 0xfe || (m === 0xe0 && text(i + 4, 5) === "JFIF\0" && b[i + 16] === 0 && b[i + 17] === 0) || (m === 0xe2 && text(i + 4, 12) === "ICC_PROFILE\0") || (m === 0xee && len === 14 && text(i + 4, 5) === "Adobe");
+    if (keep) parts.push(b.subarray(i, end));
+    i = end;
+    if (m !== 0xda) continue;
+    let z = i;
+    while (z + 1 < b.length && !(b[z] === 0xff && b[z + 1] !== 0 && !(b[z + 1] >= 0xd0 && b[z + 1] <= 0xd7))) z++;
+    if (z + 1 >= b.length) return null;
+    parts.push(b.subarray(i, z)); i = z;
   }
-  parts.push(b.subarray(i));
-  const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
-  let at = 0; for (const p of parts) { out.set(p, at); at += p.length; }
-  return out;
+  return null;
 }
+/** Keeps only the chunks needed to draw the image, and stops at IEND. */
 function stripPng(b: Uint8Array) {
-  const drop = new Set(["tEXt", "iTXt", "zTXt", "eXIf", "tIME"]);
-  const parts: Uint8Array[] = [b.subarray(0, 8)];
-  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  for (let i = 8; i + 8 <= b.length;) {
+  const allow = new Set(["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "gAMA", "cHRM", "sRGB", "iCCP", "sBIT", "pHYs", "acTL", "fcTL", "fdAT"]);
+  const parts: Uint8Array[] = [b.subarray(0, 8)], v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  for (let i = 8; i + 12 <= b.length;) {
     const len = v.getUint32(i), type = String.fromCharCode(...b.subarray(i + 4, i + 8));
-    if (!drop.has(type)) parts.push(b.subarray(i, i + 12 + len));
+    if (i + 12 + len > b.length) return null;
+    if (allow.has(type)) parts.push(b.subarray(i, i + 12 + len));
+    if (type === "IEND") return joined(parts);
     i += 12 + len;
   }
-  const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
-  let at = 0; for (const p of parts) { out.set(p, at); at += p.length; }
-  return out;
+  return null;
 }
 
 const lin = (c: number) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
@@ -178,8 +192,10 @@ export const imageTools: Record<string, Run> = {
     const meta = await exifr.parse(b, { tiff: true, gps: true, xmp: true, iptc: true }).catch(() => null);
     const n = meta ? Object.keys(meta).length : 0;
     const note = n ? `Removed ${n} metadata field${n === 1 ? "" : "s"}${meta.latitude != null ? ", including GPS location" : ""}.` : "No metadata found.";
-    if (fmt === "png") return { name: `${stem(f.name)}-clean.png`, type: MIME.png, bytes: stripPng(b), note };
-    if (fmt === "jpeg" && (!meta?.Orientation || meta.Orientation === 1 || meta.Orientation === "Horizontal (normal)")) return { name: `${stem(f.name)}-clean.jpg`, type: MIME.jpeg, bytes: stripJpeg(b), note: `${note} Pixels untouched.` };
+    const png = fmt === "png" ? stripPng(b) : null;
+    if (png) return { name: `${stem(f.name)}-clean.png`, type: MIME.png, bytes: png, note };
+    const jpg = fmt === "jpeg" && (!meta?.Orientation || meta.Orientation === 1 || meta.Orientation === "Horizontal (normal)") ? stripJpeg(b) : null;
+    if (jpg) return { name: `${stem(f.name)}-clean.jpg`, type: MIME.jpeg, bytes: jpg, note: `${note} Pixels untouched.` };
     const out = await save(await load(f, { ...ctx, preview: false }), f, p, { ...ctx, preview: false }, "-clean");
     return { ...out, note };
   }),

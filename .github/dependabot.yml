@@ -12,6 +12,10 @@ updates:
     ignore:
       - dependency-name: "@huggingface/transformers"
       - dependency-name: onnxruntime-web
+      # @astrojs/check 0.9.12 accepts TypeScript 5 and 6 only. TypeScript 7 runs through the typescript-native alias.
+      # Remove this rule when @astrojs/check accepts 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }

@@ -1,9 +1,12 @@
-import { stash } from "./client";
+import { clearStash, stash } from "./client";
 
 const $ = <T extends Element = HTMLElement>(s: string) => document.querySelector<T>(s);
 type Entry = { id: string; name: string; kind: string; group: string; blurb: string; accepts: string };
 let index: Promise<Entry[]>;
 const list = () => (index ??= fetch("/tools.json").then((r) => r.json()));
+
+// A file handed between tools is stored only for the navigation. Anything left from an interrupted one is removed here.
+if (!new URLSearchParams(location.search).has("with")) clearStash().catch(() => { /* Storage may be unavailable, and then nothing was stored. */ });
 
 // Command palette
 const dlg = $<HTMLDialogElement>("dialog.palette"), input = dlg.querySelector("input"), ul = dlg.querySelector("ul");
@@ -48,10 +51,9 @@ if (spindle) {
       : pdfs ? ["images-to-pdf"] : svg ? ["optimize-svg", "svg-to-png", "convert-image"]
       : [...(heic ? ["heic-to-jpg", "heic-to-png"] : []), "compress-image", "convert-image", "resize-image", ...(files.length > 1 ? ["images-to-pdf", "collage", "make-gif"] : ["crop-image", "remove-background", "adjust-image", "remove-metadata", "ocr-image"])];
     if (pdfs && pdfs !== files.length) { const pics = files.filter((f) => !isPdf(f)); files = pics; }
-    await stash(files);
     const all = await list(), box = $("#route");
     box.querySelector("h2").textContent = files.length === 1 ? `What should happen to ${files[0].name}?` : `What should happen to these ${files.length} files?`;
-    box.querySelector(".chips").replaceChildren(...ids.map((id) => { const a = document.createElement("a"), t = all.find((x) => x.id === id); a.className = "chip"; a.href = `/${id}?with=files`; a.textContent = t.name; return a; }));
+    box.querySelector(".chips").replaceChildren(...ids.map((id) => { const a = document.createElement("a"), t = all.find((x) => x.id === id); a.className = "chip"; a.href = `/${id}?with=files`; a.textContent = t.name; a.onclick = async (e) => { e.preventDefault(); await stash(files); location.href = a.href; }; return a; }));
     box.classList.add("on"); box.scrollIntoView({ block: "nearest", behavior: "smooth" });
     spin = 1;
   };
