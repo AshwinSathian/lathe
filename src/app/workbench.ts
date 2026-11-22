@@ -1,7 +1,7 @@
 import type { Control, Tool } from "../data/tools";
 import type { In, Out } from "../engine/core";
 import { cancelJobs, openPdf, renderPage, runTool, stash, unstash } from "./client";
-import { addBox, cropEditor, el, formFields, pageMarkup, pagesEditor, regionSurface, signaturePanel, type Box, type Rect } from "./editors";
+import { addBox, announcer, cropEditor, el, formFields, pageMarkup, pagesEditor, regionSurface, signaturePanel, type Box, type Rect } from "./editors";
 
 const bench = document.querySelector<HTMLElement>("#bench"), stage = document.querySelector<HTMLElement>("#stage"), panel = document.querySelector<HTMLElement>("#panel");
 const tool: Tool = JSON.parse(bench.dataset.tool);
@@ -73,7 +73,10 @@ refreshVisible();
 
 /* Panel */
 const extra = el("div", { style: "display:grid;gap:12px" });
-const go = el("button", { className: "btn", type: "button", textContent: tool.name, disabled: !tool.noInput });
+// The button says what it will do. Tool names that are already a verb phrase stay as they are.
+const ACTIONS: Record<string, string> = { "adjust-image": "Save photo", "filter-image": "Save photo", "frame-image": "Save image", "redact-pdf": "Apply redactions", "sign-pdf": "Sign and save", "fill-pdf": "Save filled PDF", "pdf-metadata": "Save PDF", "inspect-pdf": "Inspect PDF", "view-metadata": "Show metadata" };
+const actionLabel = ACTIONS[tool.id] ?? tool.name;
+const go = el("button", { className: "btn", type: "button", textContent: actionLabel, disabled: !tool.noInput });
 const stop = el("button", { className: "btn alt small", type: "button", textContent: "Cancel" });
 stop.onclick = cancelJobs;
 const prog = el("div", { className: "progress" }, el("div", { className: "meter", role: "progressbar", "aria-label": "Progress", "aria-valuemin": 0, "aria-valuemax": 100 }, el("i")), el("span"), stop);
@@ -82,6 +85,13 @@ const notice = el("div", { className: "notice ok", "aria-live": "polite", hidden
 const results = el("div", { className: "results" });
 const consent = tool.model ? el("div", { className: "consent" }, el("span", { textContent: `This tool runs ${tool.model.name} on your device. The first use downloads about ${tool.model.size}. Your file is not sent anywhere.` })) : null;
 panel.append(live, extra, controlsHost);
+announcer.say = (m) => say(m);
+const ranges = shown.filter((c) => c.type === "range");
+if (ranges.length >= 4) {
+  const reset = el("button", { className: "btn alt small", type: "button", textContent: "Reset all" });
+  reset.onclick = () => { for (const c of ranges) { const i = controlsHost.querySelector<HTMLInputElement>(`#c-${c.k}`); if (i) { i.value = String((c as { def: number }).def); i.dispatchEvent(new Event("input", { bubbles: true })); } } };
+  controlsHost.append(reset);
+}
 if (consent) panel.append(consent);
 panel.append(go, prog, notice, msg, results);
 // Any change to a setting makes a finished result out of date.
@@ -118,11 +128,15 @@ stage.querySelector<HTMLInputElement>(".empty input").onchange = (e) => { const 
 
 function drawTray() {
   tray.replaceChildren(...files.map((f, i) => {
-    const x = el("span", { className: "x", role: "button", "aria-label": `Remove ${f.name}`, textContent: "×" });
-    x.onclick = (e) => { e.stopPropagation(); if (busy) return setNotice(WAIT); files.splice(i, 1); current = Math.min(current, files.length - 1); afterFilesChanged(); };
-    const b = el("button", { className: "file", type: "button", title: `${f.name}, ${fmtSize(f.size)}`, "aria-current": String(i === current) }, el("span", { className: "fname", textContent: f.name }), x);
-    b.onclick = () => { current = i; drawTray(); showCurrent(); };
-    return b;
+    const x = el("button", { className: "x", type: "button", "aria-label": `Remove ${f.name}`, textContent: "×" });
+    x.onclick = () => {
+      if (busy) return setNotice(WAIT);
+      files.splice(i, 1); current = Math.min(current, files.length - 1); afterFilesChanged();
+      tray?.querySelectorAll<HTMLElement>("button.x")[Math.min(i, files.length - 1)]?.focus();
+    };
+    const b = el("button", { className: "file", type: "button", title: `${f.name}, ${fmtSize(f.size)}`, "aria-current": String(i === current) }, el("span", { className: "fname", textContent: f.name }));
+    b.onclick = () => { current = i; drawTray(); showCurrent(); tray.querySelectorAll<HTMLElement>("button.file")[i]?.focus(); };
+    return el("span", { className: "item" }, b, x);
   }));
   if (tool.multi) tray.append(el("label", { className: "add" }, "Add more", picker("Add more files")));
 }
@@ -220,8 +234,12 @@ async function showCurrent() {
     } catch (e) { editorFailed(e); }
     return;
   }
-  if (tool.editor === "form") { await showPdf(f); const host = el("div", { style: "display:grid;gap:12px" }); extra.replaceChildren(host); params.values = {}; try { const n = await formFields(host, f, params.values); go.disabled = !n; } catch (e) { showError((e as Error).message); } return; }
-  if (tool.editor === "regions" && tool.kind === "pdf") { try { await pageMarkup(view, f, boxes, syncMarks); hint("Drag on a page to mark what to remove."); } catch (e) { editorFailed(e); } return; }
+  if (tool.editor === "form") { go.disabled = true; /* Until the fields load, a run would save none of them. */ await showPdf(f); const host = el("div", { style: "display:grid;gap:12px" }); extra.replaceChildren(host); params.values = {}; try { const n = await formFields(host, f, params.values); go.disabled = !n; } catch (e) { showError((e as Error).message); } return; }
+  if (tool.editor === "regions" && tool.kind === "pdf") {
+    const addMark = { label: (i: number) => `Add box on page ${i + 1}`, run: (i: number, s: HTMLElement) => { const b: Box = { page: i, x: 0.3, y: 0.42, w: 0.4, h: 0.08 }; boxes.push(b); const n = addBox(s, b, boxes, syncMarks); syncMarks(); n.focus(); } };
+    try { await pageMarkup(view, f, boxes, syncMarks, undefined, addMark); hint("Drag on a page, or use Add box, to mark what to remove."); } catch (e) { editorFailed(e); }
+    return;
+  }
   if (tool.editor === "sign") { try { await signSetup(f); } catch (e) { editorFailed(e); } return; }
   if (tool.kind === "pdf" && isPdfFile(f)) { await showPdf(f); return; }
   await showImage(f);
@@ -250,7 +268,7 @@ async function showImage(f: In) {
   view.className = "view"; view.replaceChildren(el("p", { textContent: "Opening…" }));
   let t: Out;
   try { [t] = await runTool("thumb", [f], {}, {}); }
-  catch (e) { view.replaceChildren(el("p", { style: "text-align:center;max-width:36ch", textContent: (e as Error).message })); if (!tool.noInput && files.length < 2) go.disabled = true; return; }
+  catch (e) { say((e as Error).message); view.replaceChildren(el("p", { style: "text-align:center;max-width:36ch", textContent: (e as Error).message })); if (!tool.noInput && files.length < 2) go.disabled = true; return; }
   if (files[current] !== f) return;
   go.disabled = !ready();
   before = el("canvas"); paint(before, t.bitmap);
@@ -270,9 +288,9 @@ function wipe(result: ImageBitmap | Blob, width?: number, height?: number) {
     if (!frame) return;
     if (!after) {
       after = el("canvas", { className: "after" });
-      const h = el("button", { className: "wipe", type: "button", "aria-label": "Compare before and after. Use left and right arrow keys." });
+      const h = el("button", { className: "wipe", type: "button", role: "slider", "aria-label": "Compare before and after. Use left and right arrow keys.", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": 50, "aria-valuetext": "50% before" });
       frame.append(after, el("span", { className: "tag l", textContent: "Before" }), el("span", { className: "tag r", textContent: "After" }), h);
-      const set = (v: number) => frame.style.setProperty("--cut", `${Math.max(0, Math.min(100, v))}%`);
+      const set = (v: number) => { const at = Math.max(0, Math.min(100, v)); frame.style.setProperty("--cut", `${at}%`); h.setAttribute("aria-valuenow", String(Math.round(at))); h.setAttribute("aria-valuetext", `${Math.round(at)}% before`); };
       let cut = 50; set(cut);
       h.onpointerdown = (e) => { h.setPointerCapture(e.pointerId); h.onpointermove = (m) => { const r = frame.getBoundingClientRect(); cut = ((m.clientX - r.left) / r.width) * 100; set(cut); }; };
       h.onpointerup = () => (h.onpointermove = null);
@@ -334,15 +352,27 @@ function showSwatches(o: Out) {
 /* Sign */
 async function signSetup(f: In) {
   extra.replaceChildren();
-  signaturePanel(extra, (s) => { signature = s; go.disabled = busy || !ready(); if (s) hint("Click a page to place your signature."); });
+  extra.append(el("p", { className: "lab", textContent: "This places an image of your signature. It is not a certified digital signature." }));
+  signaturePanel(extra, (s) => {
+    // An earlier version of the signature is released unless a placed mark still shows it.
+    if (signature && signature.url !== s?.url && !boxes.some((b) => b.url === signature.url)) URL.revokeObjectURL(signature.url);
+    signature = s; go.disabled = busy || !ready();
+    if (s) { clearMsg(); hint("Click or tap a page, or use Place signature, to put it on the page."); if (matchMedia("(max-width: 940px)").matches) view.scrollIntoView({ block: "start" }); }
+  });
   go.disabled = !ready();
+  const place = (page: number, surface: HTMLElement, cx = 0.5, cy = 0.5) => {
+    if (!signature) { clearMsg(); msg.className = "ok"; msg.textContent = "Draw or type your signature first."; say(msg.textContent); return; }
+    const r = surface.getBoundingClientRect(), w = 0.3, h = (w * r.width) / signature.ratio / r.height;
+    const b: Box = { page, w, h, x: Math.max(0, Math.min(1 - w, cx - w / 2)), y: Math.max(0, Math.min(1 - h, cy - h / 2)), png: signature.png, url: signature.url };
+    boxes.push(b); const n = addBox(surface, b, boxes, syncMarks); syncMarks(); n.focus();
+  };
   await pageMarkup(view, f, boxes, syncMarks, (page, surface) => {
     surface.addEventListener("click", (e) => {
-      if (!signature || (e.target !== surface && (e.target as HTMLElement).tagName !== "CANVAS")) return;
-      const r = surface.getBoundingClientRect(), w = 0.3, h = (w * r.width) / signature.ratio / r.height, b: Box = { page, w, h, x: Math.max(0, Math.min(1 - w, (e.clientX - r.left) / r.width - w / 2)), y: Math.max(0, Math.min(1 - h, (e.clientY - r.top) / r.height - h / 2)), png: signature.png, url: signature.url };
-      boxes.push(b); addBox(surface, b, boxes, syncMarks); syncMarks();
+      if (e.target !== surface && (e.target as HTMLElement).tagName !== "CANVAS") return;
+      const r = surface.getBoundingClientRect();
+      place(page, surface, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
     });
-  });
+  }, { label: (i) => `Place signature on page ${i + 1}`, run: (i, s) => place(i, s) });
 }
 
 /* Run */
@@ -350,7 +380,7 @@ const NEXT: Record<string, string[]> = { "application/pdf": ["compress-pdf", "pr
 async function run() {
   if (busy) return;
   const asked = tool.model && !consented;
-  if (asked) { consented = true; consent.hidden = true; go.textContent = tool.name; }
+  if (asked) { consented = true; consent.hidden = true; go.textContent = actionLabel; }
   resetOutput(); busy = true; changedDuringRun = false; go.disabled = true; clearMsg(); setNotice(""); prog.classList.add("on"); setProgress(0.02, "Working…"); say("Working");
   const started = performance.now();
   try {
@@ -364,6 +394,7 @@ async function run() {
     const failed = res.flatMap((o) => o.failed ?? []);
     if (failed.length) setNotice(`${outs.length} of ${outs.length + failed.length} finished. Not processed: ${failed.join("; ")}`);
     say(`Done. ${outs.length} result${outs.length === 1 ? "" : "s"} ready.`);
+    results.querySelector<HTMLElement>("a[download]")?.focus({ preventScroll: true });
   } catch (e) {
     if (asked) { consented = false; consent.hidden = false; go.textContent = "Download model and run"; }
     if ((e as Error).name === "AbortError") { setNotice("Cancelled. Your files are unchanged."); say("Cancelled"); }

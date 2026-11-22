@@ -9,6 +9,8 @@ export const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<
   return n;
 };
 const clamp = (v: number, a: number, z: number) => Math.min(z, Math.max(a, v));
+/** Set by the workbench, so editors can announce what a key press did. */
+export const announcer = { say: (_: string) => {} };
 export type Rect = { x: number; y: number; w: number; h: number };
 
 /** Drag tracking that works for mouse, touch and pen. */
@@ -55,7 +57,11 @@ export function cropEditor(frame: HTMLElement, getAspect: () => number | null, p
     const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, number[]>)[e.key];
     if (!d) return; e.preventDefault();
     const sx = (e.altKey ? 10 : 1) / pixel.w * Math.max(1, Math.round(pixel.w / 400)), sy = (e.altKey ? 10 : 1) / pixel.h * Math.max(1, Math.round(pixel.h / 400));
-    if (e.shiftKey && !getAspect()) r = { ...r, w: clamp(r.w + d[0] * sx, 0.01, 1 - r.x), h: clamp(r.h + d[1] * sy, 0.01, 1 - r.y) };
+    const fixed = getAspect();
+    if (e.shiftKey && fixed) {
+      const ar = fixed * (pixel.h / pixel.w), w = clamp(r.w + (d[0] || -d[1]) * sx, 0.02, 1 - r.x), h = w / ar;
+      if (r.y + h <= 1) r = { ...r, w, h };
+    } else if (e.shiftKey) r = { ...r, w: clamp(r.w + d[0] * sx, 0.01, 1 - r.x), h: clamp(r.h + d[1] * sy, 0.01, 1 - r.y) };
     else r = { ...r, x: clamp(r.x + d[0] * sx, 0, 1 - r.w), y: clamp(r.y + d[1] * sy, 0, 1 - r.h) };
     paint();
   });
@@ -65,9 +71,12 @@ export function cropEditor(frame: HTMLElement, getAspect: () => number | null, p
 
 type Box = Rect & { page: number; png?: Uint8Array; url?: string };
 function addBox(surface: HTMLElement, b: Box, all: Box[], changed: () => void) {
-  const n = el("div", { className: b.url ? "box sig" : "box", tabIndex: 0, role: "group", "aria-label": `Marked area on page ${b.page + 1}. Delete key removes it.` });
+  const n = el("div", { className: b.url ? "box sig" : "box", tabIndex: 0, role: "group", "aria-label": `Marked area on page ${b.page + 1}. Arrow keys move it, Shift and arrow keys resize it, Delete removes it.` });
   if (b.url) n.append(el("img", { src: b.url, alt: "" }));
-  const remove = () => { all.splice(all.indexOf(b), 1); n.remove(); changed(); };
+  const remove = () => {
+    all.splice(all.indexOf(b), 1); n.remove(); changed();
+    (surface.querySelector<HTMLElement>(".box") ?? surface.previousElementSibling?.querySelector<HTMLElement>(".addmark"))?.focus();
+  };
   const del = el("button", { className: "del", type: "button", "aria-label": "Remove", textContent: "×" }); del.onclick = (e) => { e.stopPropagation(); remove(); };
   const grip = el("div", { className: "grip" });
   n.append(del, grip); surface.append(n);
@@ -75,7 +84,18 @@ function addBox(surface: HTMLElement, b: Box, all: Box[], changed: () => void) {
   let s: Rect;
   drag(n, (dx, dy) => { const r = surface.getBoundingClientRect(); b.x = clamp(s.x + dx / r.width, 0, 1 - b.w); b.y = clamp(s.y + dy / r.height, 0, 1 - b.h); paint(); }, () => (s = { ...b }), changed);
   drag(grip, (dx, dy) => { const r = surface.getBoundingClientRect(); b.w = clamp(s.w + dx / r.width, 0.01, 1 - b.x); b.h = b.url ? (b.w * s.h) / s.w : clamp(s.h + dy / r.height, 0.005, 1 - b.y); if (b.y + b.h > 1) { b.h = 1 - b.y; if (b.url) b.w = (b.h * s.w) / s.h; } paint(); }, () => (s = { ...b }), changed);
-  n.addEventListener("keydown", (e) => { if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(); } });
+  n.addEventListener("keydown", (e) => {
+    if (e.target !== n) return;
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); remove(); return; }
+    const d = ({ ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] } as Record<string, number[]>)[e.key];
+    if (!d) return;
+    e.preventDefault();
+    const step = e.altKey ? 0.05 : 0.01;
+    if (e.shiftKey && b.url) { const ratio = b.h / b.w, w = clamp(b.w + (d[0] || -d[1]) * step, 0.02, 1 - b.x); if (b.y + w * ratio <= 1) { b.w = w; b.h = w * ratio; } }
+    else if (e.shiftKey) { b.w = clamp(b.w + d[0] * step, 0.01, 1 - b.x); b.h = clamp(b.h + d[1] * step, 0.005, 1 - b.y); }
+    else { b.x = clamp(b.x + d[0] * step, 0, 1 - b.w); b.y = clamp(b.y + d[1] * step, 0, 1 - b.h); }
+    paint(); changed();
+  });
   paint();
   return n;
 }
@@ -84,6 +104,8 @@ function addBox(surface: HTMLElement, b: Box, all: Box[], changed: () => void) {
 export function regionSurface(surface: HTMLElement, page: number, all: Box[], changed: () => void) {
   surface.addEventListener("pointerdown", (e) => {
     if (e.target !== surface && (e.target as HTMLElement).tagName !== "CANVAS") return;
+    // A finger scrolls the document. On touch, marks come from the Add box button and are then dragged into place.
+    if (e.pointerType === "touch") return;
     e.preventDefault(); surface.setPointerCapture(e.pointerId);
     const r = surface.getBoundingClientRect(), x0 = clamp((e.clientX - r.left) / r.width, 0, 1), y0 = clamp((e.clientY - r.top) / r.height, 0, 1), b: Box = { page, x: x0, y: y0, w: 0.002, h: 0.002 };
     all.push(b);
@@ -116,14 +138,25 @@ export async function pagesEditor(view: HTMLElement, files: In[], onChange: (ord
     order.forEach((o, i) => { o.node.querySelector<HTMLElement>(".num").textContent = `${i + 1}`; const c = o.node.querySelector<HTMLElement>("canvas"); if (c) { c.style.transform = o.rot ? `rotate(${o.rot}deg) scale(${o.rot % 180 ? 0.72 : 1})` : ""; } });
     onChange(order.map(({ f, page, rot }) => ({ f, page, rot })));
   };
-  const place = (o: (typeof order)[0], to: number) => { order.splice(order.indexOf(o), 1); order.splice(to, 0, o); grid.insertBefore(o.node, order[to + 1]?.node ?? null); sync(); o.node.scrollIntoView({ block: "nearest" }); };
+  const place = (o: (typeof order)[0], to: number) => { order.splice(order.indexOf(o), 1); order.splice(to, 0, o); grid.insertBefore(o.node, order[to + 1]?.node ?? null); sync(); o.node.scrollIntoView({ block: "nearest" }); announcer.say(`Page ${o.page + 1} moved to position ${to + 1}.`); };
+  const removed: { o: (typeof order)[0]; at: number }[] = [];
+  const undo = el("button", { className: "btn alt small", type: "button", textContent: "Undo delete", hidden: true });
+  undo.onclick = () => {
+    const last = removed.pop(); if (!last) return;
+    order.splice(last.at, 0, last.o); grid.insertBefore(last.o.node, order[last.at + 1]?.node ?? null); undo.hidden = !removed.length; sync();
+    last.o.node.querySelector<HTMLElement>("button[title=Delete]")?.focus(); announcer.say(`Page ${last.o.page + 1} restored.`);
+  };
+  view.prepend(undo);
   let dragged: (typeof order)[0];
   let built = 0;
   const append = async (next = files) => { files = next; for (let f = built; f < files.length; f = ++built) {
     await lazyPages(view, files[f], 124, (page, sheet) => {
       const node = el("div", { className: "pg", draggable: true }), o = { f, page, rot: 0, node };
-      const btn = (label: string, glyph: string, fn: () => void) => { const b = el("button", { type: "button", title: label, "aria-label": `${label}, page ${page + 1}${files.length > 1 ? ` of ${files[f].name}` : ""}`, textContent: glyph }); b.onclick = fn; return b; };
-      node.append(sheet, el("span", { className: "num" }), el("div", { className: "tools" }, btn("Move earlier", "‹", () => { const i = order.indexOf(o); if (i > 0) place(o, i - 1); }), btn("Rotate", "↻", () => { o.rot = (o.rot + 90) % 360; sync(); }), btn("Delete", "×", () => { order.splice(order.indexOf(o), 1); node.remove(); sync(); }), btn("Move later", "›", () => { const i = order.indexOf(o); if (i < order.length - 1) place(o, i + 1); })));
+      const btn = (label: string, glyph: string, fn: (b: HTMLButtonElement) => void) => { const b = el("button", { type: "button", title: label, "aria-label": `${label}, original page ${page + 1}${files.length > 1 ? ` of ${files[f].name}` : ""}`, textContent: glyph }); b.onclick = () => fn(b); return b; };
+      node.append(sheet, el("span", { className: "num" }), el("div", { className: "tools" }, btn("Move earlier", "‹", (b) => { const i = order.indexOf(o); if (i > 0) { place(o, i - 1); b.focus(); } }), btn("Rotate", "↻", () => { o.rot = (o.rot + 90) % 360; sync(); announcer.say(`Page ${page + 1} rotated to ${o.rot} degrees.`); }), btn("Delete", "×", () => {
+        const at = order.indexOf(o); order.splice(at, 1); node.remove(); removed.push({ o, at }); undo.hidden = false; sync();
+        (order[at] ?? order[at - 1])?.node.querySelector<HTMLElement>("button[title=Delete]")?.focus(); announcer.say(`Page ${page + 1} deleted. Undo is available.`);
+      }), btn("Move later", "›", (b) => { const i = order.indexOf(o); if (i < order.length - 1) { place(o, i + 1); b.focus(); } })));
       node.addEventListener("dragstart", (e) => { dragged = o; node.classList.add("drag"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(page)); e.stopPropagation(); });
       node.addEventListener("dragend", () => { node.classList.remove("drag"); grid.querySelectorAll(".target").forEach((x) => x.classList.remove("target")); dragged = null; });
       node.addEventListener("dragover", (e) => { if (!dragged) return; e.preventDefault(); e.stopPropagation(); node.classList.add("target"); });
@@ -136,12 +169,17 @@ export async function pagesEditor(view: HTMLElement, files: In[], onChange: (ord
   return { append };
 }
 
-export async function pageMarkup(view: HTMLElement, f: In, boxes: Box[], changed: () => void, onSurface?: (page: number, s: HTMLElement) => void) {
+export async function pageMarkup(view: HTMLElement, f: In, boxes: Box[], changed: () => void, onSurface?: (page: number, s: HTMLElement) => void, action?: { label: (page: number) => string; run: (page: number, s: HTMLElement) => void }) {
   view.className = "view scroll"; view.replaceChildren();
   const list = el("div", { className: "docpages" }); view.append(list);
   const width = Math.min(760, view.clientWidth - 40);
   await lazyPages(view, f, width, (i, sheet) => {
     sheet.className = "docpage";
+    if (action) {
+      const add = el("button", { className: "btn alt small addmark", type: "button", textContent: action.label(i) });
+      add.onclick = () => action.run(i, sheet);
+      list.append(el("div", { className: "pagebar" }, add));
+    }
     list.append(sheet);
     if (onSurface) onSurface(i, sheet); else regionSurface(sheet, i, boxes, changed);
     // Marks outlive a redraw of the page, so every mark that will be applied stays on screen.

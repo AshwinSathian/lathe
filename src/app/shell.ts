@@ -22,8 +22,10 @@ const score = (t: Entry, q: string) => {
 const draw = () => {
   ul.replaceChildren(...hits.map((t, i) => {
     const li = document.createElement("li"), a = document.createElement("a"), s = document.createElement("small");
-    a.href = `/${t.id}`; a.role = "option"; a.setAttribute("aria-selected", String(i === sel)); a.textContent = t.name; s.textContent = t.kind === "pdf" ? `PDF, ${t.group}` : `Images, ${t.group}`; a.append(s); li.append(a); return li;
+    li.role = "none"; a.id = `palette-${i}`; a.role = "option"; a.setAttribute("aria-selected", String(i === sel));
+    a.href = `/${t.id}`; a.tabIndex = -1; a.textContent = t.name; s.textContent = t.kind === "pdf" ? `PDF, ${t.group}` : `Images, ${t.group}`; a.append(s); li.append(a); return li;
   }));
+  if (hits.length) input.setAttribute("aria-activedescendant", `palette-${sel}`); else input.removeAttribute("aria-activedescendant");
   ul.querySelector("[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
 };
 const search = async () => {

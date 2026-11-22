@@ -81,7 +81,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .empty span { color: var(--soft); }
 .empty input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .empty:has(input:focus-visible) { outline: 2px solid var(--act); outline-offset: -4px; }
-.view { flex: 1; display: grid; place-items: center; padding: 16px; min-height: 0; position: relative; touch-action: none; }
+.view { flex: 1; display: grid; place-items: center; padding: 16px; min-height: 0; position: relative; }
 .view.scroll { display: block; align-self: stretch; width: 100%; overflow: auto; max-height: 76vh; touch-action: auto; }
 .frame { position: relative; line-height: 0; max-width: 100%; user-select: none; background: repeating-conic-gradient(#b9c2cf 0 25%, #e7ebf0 0 50%) 0 0 / 16px 16px; box-shadow: 0 1px 2px rgba(10,20,40,.3), 0 10px 34px rgba(10,20,40,.22); }
 .frame canvas { display: block; max-width: 100%; max-height: 66vh; width: auto; height: auto; }
@@ -94,7 +94,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tray button.file { flex: none; display: flex; align-items: center; gap: 6px; max-width: 220px; min-height: 36px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--raised); cursor: pointer; }
 .tray button.file[aria-current="true"] { border-color: var(--act); box-shadow: inset 0 0 0 1px var(--act); }
 .tray .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--step--1); }
-.tray .x { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 4px; color: var(--soft); } .tray .x:hover { background: var(--sunk); color: var(--bad); }
+.tray .item { flex: none; display: flex; align-items: center; gap: 2px; }
+.tray .x { flex: none; width: 28px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; border-radius: 4px; color: var(--soft); } .tray .x:hover { background: var(--sunk); color: var(--bad); }
 .tray .add { position: relative; flex: none; min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 6px; border: 1px dashed var(--line); cursor: pointer; font-size: var(--step--1); }
 .tray .add input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
 
@@ -145,15 +146,16 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.18); }
 .pg .tools button { width: 32px; height: 32px; display: grid; place-items: center; background: var(--raised); border: 1px solid var(--line); border-radius: 5px; cursor: pointer; }
 .pg .tools button:hover { border-color: var(--act); }
 .docpages { display: grid; gap: 18px; justify-items: center; }
-.docpage { position: relative; line-height: 0; background: #fff; box-shadow: 0 1px 2px rgba(10,20,40,.3), 0 8px 26px rgba(10,20,40,.22); touch-action: none; cursor: crosshair; max-width: 100%; }
+.docpage { position: relative; line-height: 0; background: #fff; box-shadow: 0 1px 2px rgba(10,20,40,.3), 0 8px 26px rgba(10,20,40,.22); touch-action: pan-x pan-y pinch-zoom; cursor: crosshair; max-width: 100%; }
+.pagebar { width: 100%; max-width: 760px; display: flex; justify-content: flex-end; margin-bottom: -10px; }
 .docpage canvas { display: block; max-width: 100%; height: auto; }
 .box { position: absolute; border: 1.5px solid var(--act); background: rgba(0,0,0,.72); touch-action: none; cursor: move; }
 .box.sig { background: none; border-style: dashed; } .box img { width: 100%; height: 100%; display: block; pointer-events: none; }
-.box .del { position: absolute; top: -13px; right: -13px; width: 26px; height: 26px; display: grid; place-items: center; line-height: 1; border-radius: 50%; border: 0; background: var(--bad); color: #fff; cursor: pointer; font-size: 15px; }
-.box .grip { position: absolute; right: -9px; bottom: -9px; width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 2px solid var(--act); cursor: nwse-resize; touch-action: none; }
+.box .del { position: absolute; top: -14px; left: -14px; width: 28px; height: 28px; display: grid; place-items: center; line-height: 1; border-radius: 50%; border: 0; background: var(--bad); color: #fff; cursor: pointer; font-size: 15px; }
+.box .grip { position: absolute; right: -14px; bottom: -14px; width: 28px; height: 28px; border-radius: 50%; background: #fff; border: 2px solid var(--act); cursor: nwse-resize; touch-action: none; }
 .cropbox { position: absolute; box-shadow: 0 0 0 9999px rgba(8,14,28,.62); border: 1px solid #fff; cursor: move; touch-action: none; background-image: linear-gradient(rgba(255,255,255,.34), rgba(255,255,255,.34)), linear-gradient(rgba(255,255,255,.34), rgba(255,255,255,.34)), linear-gradient(90deg, rgba(255,255,255,.34), rgba(255,255,255,.34)), linear-gradient(90deg, rgba(255,255,255,.34), rgba(255,255,255,.34)); background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%; background-position: 0 33.33%, 0 66.66%, 33.33% 0, 66.66% 0; background-repeat: no-repeat; }
 .frame:has(.cropbox) { overflow: hidden; }
-.cropbox i { position: absolute; width: 22px; height: 22px; border: 3px solid #fff; touch-action: none; }
+.cropbox i { position: absolute; width: 26px; height: 26px; border: 3px solid #fff; touch-action: none; }
 .cropbox i[data-h=nw] { left: -2px; top: -2px; border-right: 0; border-bottom: 0; cursor: nwse-resize; } .cropbox i[data-h=ne] { right: -2px; top: -2px; border-left: 0; border-bottom: 0; cursor: nesw-resize; } .cropbox i[data-h=sw] { left: -2px; bottom: -2px; border-right: 0; border-top: 0; cursor: nesw-resize; } .cropbox i[data-h=se] { right: -2px; bottom: -2px; border-left: 0; border-top: 0; cursor: nwse-resize; }
 .sigpad { width: 100%; height: 130px; background: #fff; border-radius: 5px; touch-action: none; cursor: crosshair; display: block; }
 .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 2px; border-radius: 7px; background: var(--sunk); }
@@ -175,3 +177,32 @@ dialog.palette::backdrop { background: rgba(8,14,28,.5); backdrop-filter: blur(3
 .palette a { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; border-radius: 6px; text-decoration: none; } .palette a small { color: var(--soft); font-size: var(--step--1); white-space: nowrap; }
 .palette a[aria-selected=true] { background: var(--act); color: var(--on-act); } .palette a[aria-selected=true] small { color: inherit; }
 @media (prefers-reduced-motion: reduce) { *, ::before, ::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+
+/* On a phone, the photo stays in view while its sliders scroll beneath it. */
+@media (max-width: 940px) {
+  .bench:has(.frame) { display: block; }
+  .bench:has(.frame) .panel { margin-top: 14px; }
+  .stage:has(.frame) { position: sticky; top: 0; z-index: 4; min-height: 0; max-height: 44dvh; }
+  .stage:has(.frame) .frame canvas { max-height: 32dvh; }
+}
+@media (pointer: coarse) {
+  .box .del, .box .grip { width: 44px; height: 44px; }
+  .box .del { top: -22px; left: -22px; } .box .grip { right: -22px; bottom: -22px; }
+}
+
+/* Forced colours remove backgrounds, so state and marks are drawn with system colours and borders. */
+@media (forced-colors: active) {
+  .check input { forced-color-adjust: none; background: Canvas; border: 1px solid ButtonText; }
+  .check input::after { background: ButtonText; box-shadow: none; }
+  .check input:checked { background: Highlight; border-color: Highlight; }
+  .check input:checked::after { background: HighlightText; }
+  input[type=range]::-webkit-slider-runnable-track { forced-color-adjust: none; background: ButtonText; }
+  input[type=range]::-webkit-slider-thumb { forced-color-adjust: none; background: Highlight; }
+  input[type=range]::-moz-range-track { background: ButtonText; }
+  input[type=range]::-moz-range-thumb { background: Highlight; }
+  .meter { border: 1px solid CanvasText; }
+  .meter i { forced-color-adjust: none; background: Highlight; }
+  .box { forced-color-adjust: none; background: Canvas; border: 2px solid Highlight; }
+  .box.sig { background: none; }
+  .box .del, .box .grip { forced-color-adjust: none; background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
+}

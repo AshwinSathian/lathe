@@ -2,6 +2,25 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Redaction, signing, crop and page order work from the keyboard, with Add box and Place signature buttons
+- Undo for deleted pages in Organise, and Reset all for photo sliders
+
+### Changed
+
+- A finger now scrolls a document. On touch, marks are added with a button and then dragged
+- Primary buttons say what they do, such as Apply redactions and Save photo
+- Signing states in the panel that it places an image, not a certified signature
+
+### Fixed
+
+- Files can be removed by keyboard, and focus no longer falls to the top of the page after an action
+- Controls and redaction marks stay visible and distinct in forced colours
+- On a phone, the photo stays in view while you adjust its sliders
+
 ## [0.1.8] - 2026-11-22
 
 ### Fixed
