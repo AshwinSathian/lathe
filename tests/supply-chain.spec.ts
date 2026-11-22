@@ -64,3 +64,11 @@ test("a poisoned cached model is thrown away", async ({ page }) => {
   await startModel(page, () => {});
   expect(await page.evaluate(async (k) => !!(await (await caches.open("lathe-models")).match(k)), key)).toBe(false);
 });
+test("an interrupted model download explains what to do", async ({ page }) => {
+  await page.route(/huggingface\.co|hf\.co|cdn\.jsdelivr\.net/, (r) => r.request().url().endsWith(".wasm") ? r.fulfill({ status: 200, headers: { "access-control-allow-origin": "*" }, contentType: "application/wasm", path: REAL_WASM }) : r.abort("connectionreset"));
+  await page.goto("/remove-background");
+  await page.locator("#stage input[type=file]").first().setInputFiles("tests/fixtures/small.png");
+  await expect(go(page)).toBeEnabled({ timeout: 20_000 }); await go(page).click();
+  await expect(page.locator("#panel .alert")).toContainText(/interrupted.*connection/i, { timeout: 45_000 });
+  await expect(go(page)).toHaveText("Download model and run");
+});

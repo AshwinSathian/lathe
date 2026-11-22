@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { test, expect } from "@playwright/test";
 import { tools } from "../src/data/tools";
+import { docPages } from "../src/data/docs";
 const base = process.env.LATHE_URL;
 test.skip(!base, "Needs LATHE_URL");
 test.skip(({ browserName }) => browserName !== "chromium", "Headers do not vary by browser");
@@ -31,7 +32,7 @@ test("caching matches each kind of file", async ({ request }) => {
 });
 test("discovery files are right", async ({ request }) => {
   expect(await (await request.get("/robots.txt")).text()).toContain(`Sitemap: ${base}/sitemap-index.xml`);
-  const map = await (await request.get("/sitemap-0.xml")).text(); expect(map.match(/<loc>/g).length).toBe(tools.length + 2);
+  const map = await (await request.get("/sitemap-0.xml")).text(); expect(map.match(/<loc>/g).length).toBe(tools.length + docPages.length + 3); // Tools, docs, and the home, privacy and docs index pages.
   expect(await (await request.get("/llms.txt")).text()).toContain(`${tools.length} free image and PDF tools`);
   expect((await request.get("/og.png")).headers()["content-type"]).toBe("image/png");
   expect((await request.get("/no-such-page")).status()).toBe(404);

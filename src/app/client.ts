@@ -132,10 +132,17 @@ async function rasterSvg({ text }: { text: string }) {
 // and only these two hosts. The worker checks every file's SHA-256 before using it.
 async function fetchPinned({ url, integrity }: { url: string; integrity?: string }, progress: (got: number, total: number) => void) {
   if (!/^https:\/\/(huggingface\.co|cdn\.jsdelivr\.net)\//.test(url)) throw new Error("Blocked a download from an unexpected address.");
-  const r = await fetch(url, integrity ? { integrity } : {});
-  if (!r.ok) throw new Error(`Model download failed (${r.status}).`);
-  const total = +(r.headers.get("content-length") ?? 0), reader = r.body.getReader(), parts: Uint8Array[] = []; let got = 0;
-  for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length; progress(got, total); }
+  const parts: Uint8Array[] = []; let got = 0;
+  try {
+    const r = await fetch(url, integrity ? { integrity } : {});
+    if (!r.ok) throw new Error(`Model download failed (${r.status}).`);
+    const total = +(r.headers.get("content-length") ?? 0), reader = r.body.getReader();
+    for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length; progress(got, total); }
+  } catch (e) {
+    // A failed integrity check is also a TypeError, so that message comes from the caller's own check.
+    if (integrity || /failed \(/.test((e as Error).message)) throw e;
+    throw new Error("The model download was interrupted. Check your connection and try again.");
+  }
   const out = new Uint8Array(got); let at = 0;
   for (const x of parts) { out.set(x, at); at += x.length; }
   return out.buffer;
