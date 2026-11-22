@@ -233,3 +233,14 @@ export function stripJpeg(b: Uint8Array) {
   }
   return null;
 }
+
+/** The ICC profile inside a JPEG, reassembled from its APP2 segments, or null. */
+export function jpegIcc(b: Uint8Array) {
+  const parts: Uint8Array[] = [];
+  for (let i = 2; i + 4 < b.length && b[i] === 0xff && b[i + 1] !== 0xda;) {
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (b[i + 1] === 0xe2 && String.fromCharCode(...b.subarray(i + 4, i + 16)) === "ICC_PROFILE\0") parts[b[i + 16] - 1] = b.subarray(i + 18, i + 2 + len);
+    i += 2 + len;
+  }
+  return parts.length && !parts.includes(undefined) ? joined(parts) : null;
+}

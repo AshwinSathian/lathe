@@ -1,7 +1,7 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFString, PDFHexString, PDFContentStream, decodePDFRawStream, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFObject, type PDFPage } from "pdf-lib";
 import { unzlibSync } from "fflate";
 import { Say, bytesOf, eachFile as each, pagesIn, parseRanges, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
-import { EXT, MIME, encode, load as loadImage, sniff, stripJpeg } from "./codecs";
+import { EXT, MIME, encode, jpegIcc, load as loadImage, sniff, stripJpeg } from "./codecs";
 import qpdfWasm from "@neslinesli93/qpdf-wasm/dist/qpdf.wasm?url";
 
 const PDF_T = "application/pdf";
@@ -284,61 +284,126 @@ const nameOf = (v: any) => (v instanceof PDFName ? v.decodeText() : v instanceof
 const numOf = (d: PDFDict, k: string) => { const v = d.lookup(PDFName.of(k)); return v instanceof PDFNumber ? v.asNumber() : 0; };
 
 /** Downsamples embedded images in place. Text and vectors are never touched. */
+/**
+ * The size each image is really drawn at, in points, found by following the page content.
+ * An image that is also reached any other way is left out, so it keeps its full resolution.
+ */
+function drawnSizes(doc: PDFDocument) {
+  const size = new Map<PDFRef, { w: number; h: number }>(), unknown = new Set<PDFRef>();
+  const X = (m: number[], n: number[]) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+  const isImage = (o: unknown) => o instanceof PDFStream && nameOf(o.dict.lookup(PDFName.of("Subtype"))) === "Image";
+  const mark = (v: unknown, seen = new Set<unknown>()) => {
+    if (!v || seen.has(v)) return; seen.add(v);
+    if (v instanceof PDFRef) { const o = doc.context.lookup(v); if (isImage(o)) unknown.add(v); mark(o, seen); }
+    else if (v instanceof PDFArray) v.asArray().forEach((x) => mark(x, seen));
+    else if (v instanceof PDFStream) mark(v.dict, seen);
+    else if (v instanceof PDFDict) v.values().forEach((x) => mark(x, seen));
+  };
+  const text = (st: unknown) => new TextDecoder("latin1").decode(st instanceof PDFRawStream ? decodePDFRawStream(st).decode() : (st as PDFContentStream).getUnencodedContents());
+  const walk = (src: string, res: PDFDict | undefined, base: number[], path: Set<unknown>) => {
+    const xo = res?.lookup(PDFName.of("XObject"));
+    for (const k of ["Pattern", "ExtGState", "Font"]) mark(res?.lookup(PDFName.of(k)));
+    if (/\bBI\b/.test(src)) { mark(xo); return; }
+    const tokens = src.replace(/\((?:\\.|[^\\()])*\)|<[^<>]*>/g, " ").match(/[-+]?(?:\d+\.?\d*|\.\d+)|\/[^\s/<>[\]()]+|[A-Za-z'"*]+/g) ?? [];
+    let m = base, nums: number[] = [], name = ""; const stack: number[][] = [];
+    for (const t of tokens) {
+      if (/^[-+.\d]/.test(t)) { nums.push(+t); continue; }
+      if (t[0] === "/") { name = t.slice(1).replace(/#([\da-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))); continue; }
+      if (t === "q") stack.push(m); else if (t === "Q") m = stack.pop() ?? base; else if (t === "cm" && nums.length >= 6) m = X(m, nums.slice(-6));
+      else if (t === "Do" && xo instanceof PDFDict) {
+        const ref = xo.get(PDFName.of(name)), o = ref instanceof PDFRef ? doc.context.lookup(ref) : null;
+        if (isImage(o)) { const w = Math.hypot(m[0], m[1]), h = Math.hypot(m[2], m[3]), was = size.get(ref as PDFRef); size.set(ref as PDFRef, { w: Math.max(w, was?.w ?? 0), h: Math.max(h, was?.h ?? 0) }); }
+        else if (o instanceof PDFStream && !path.has(o)) {
+          const fm = o.dict.lookup(PDFName.of("Matrix")), inner = fm instanceof PDFArray && fm.size() === 6 ? X(m, fm.asArray().map((x) => (x as PDFNumber).asNumber())) : m, own = o.dict.lookup(PDFName.of("Resources"));
+          walk(text(o), own instanceof PDFDict ? own : res, inner, new Set([...path, o]));
+        }
+      }
+      nums = [];
+    }
+  };
+  try {
+    for (const page of doc.getPages()) {
+      const c = page.node.Contents(), list = c instanceof PDFArray ? c.asArray().map((x) => doc.context.lookup(x)) : c ? [c] : [], unit = numOf(page.node, "UserUnit") || 1;
+      walk(list.map(text).join("\n"), page.node.Resources(), [unit, 0, 0, unit, 0, 0], new Set());
+      mark(page.node.Annots());
+    }
+  } catch { return null; }
+  for (const r of unknown) size.delete(r);
+  return size;
+}
+/** Only colour that survives a round trip through the browser's decoder is re-encoded. */
+function plainColour(doc: PDFDocument, d: PDFDict) {
+  const cs = d.lookup(PDFName.of("ColorSpace"));
+  if (d.has(PDFName.of("Decode"))) return null;
+  if (cs === PDFName.of("DeviceRGB")) return { ch: 3, keep: false };
+  if (cs === PDFName.of("DeviceGray")) return { ch: 1, keep: false };
+  if (!isIccSpace(doc, d.get(PDFName.of("ColorSpace")))) return null;
+  return numOf(((cs as PDFArray).lookup(1) as PDFStream).dict, "N") === 3 ? { ch: 3, keep: true } : null;
+}
 async function shrinkImages(doc: PDFDocument, dpi: number, q: number, ctx: Ctx) {
-  // How large each image is actually drawn is approximated by the largest page.
-  const pageMax = Math.max(...doc.getPages().map((x) => Math.max(x.getWidth(), x.getHeight()))) / 72;
-  const cap = Math.round(pageMax * dpi);
+  const drawn = drawnSizes(doc);
   const list = doc.context.enumerateIndirectObjects().filter(([, o]) => o instanceof PDFRawStream && nameOf(o.dict.lookup(PDFName.of("Subtype"))) === "Image") as [PDFRef, PDFRawStream][];
   let changed = 0;
   for (let i = 0; i < list.length; i++) {
     const [ref, s] = list[i], d = s.dict; ctx.progress(0.1 + (i / list.length) * 0.75, `Recompressing image ${i + 1} of ${list.length}`);
-    const w = numOf(d, "Width"), h = numOf(d, "Height"), bpc = numOf(d, "BitsPerComponent"), filter = nameOf(d.lookup(PDFName.of("Filter"))), cs = nameOf(d.lookup(PDFName.of("ColorSpace")));
-    if (w * h < 4096 || d.has(PDFName.of("ImageMask")) || d.has(PDFName.of("Mask"))) continue;
+    const w = numOf(d, "Width"), h = numOf(d, "Height"), bpc = numOf(d, "BitsPerComponent"), filter = nameOf(d.lookup(PDFName.of("Filter"))), colour = plainColour(doc, d);
+    if (w * h < 4096 || !colour || d.has(PDFName.of("ImageMask")) || d.has(PDFName.of("Mask"))) continue;
     // A soft mask is a grayscale image too, and it must keep its pixel values exact enough to stay transparent.
     if (doc.context.enumerateIndirectObjects().some(([, o]) => o instanceof PDFRawStream && o.dict.get(PDFName.of("SMask")) === ref)) continue;
+    // A premultiplied image (/Matte) must stay exactly the size of its mask.
+    const mask = d.lookup(PDFName.of("SMask")); if (mask instanceof PDFStream && mask.dict.has(PDFName.of("Matte"))) continue;
     let img: ImageData;
     try {
       if (filter === "DCTDecode") {
-        if (cs === "DeviceCMYK" || numOf(d, "Decode")) continue;
-        const b = await createImageBitmap(new Blob([s.contents as BlobPart], { type: "image/jpeg" })); img = toImg(b);
-      } else if (filter === "FlateDecode" && bpc === 8 && (cs === "DeviceRGB" || cs === "DeviceGray") && !d.has(PDFName.of("DecodeParms"))) {
-        const raw = unzlibSync(s.contents), ch = cs === "DeviceRGB" ? 3 : 1;
+        const b = await createImageBitmap(new Blob([s.contents as BlobPart], { type: "image/jpeg" }), { colorSpaceConversion: "none" }); img = toImg(b);
+      } else if (filter === "FlateDecode" && bpc === 8 && !d.has(PDFName.of("DecodeParms"))) {
+        const raw = unzlibSync(s.contents), ch = colour.ch;
         if (raw.length < w * h * ch) continue;
         img = new ImageData(w, h);
         for (let k = 0, o = 0; k < w * h; k++, o += ch) { img.data[k * 4] = raw[o]; img.data[k * 4 + 1] = raw[ch === 3 ? o + 1 : o]; img.data[k * 4 + 2] = raw[ch === 3 ? o + 2 : o]; img.data[k * 4 + 3] = 255; }
       } else continue;
     } catch { continue; }
-    const k = Math.min(1, cap / Math.max(w, h)), nw = Math.max(1, Math.round(w * k)), nh = Math.max(1, Math.round(h * k));
+    // Pixels needed at the target resolution for the largest placement. An image with no known placement keeps them all.
+    const at = drawn?.get(ref), k = at ? Math.min(1, Math.max((at.w / 72) * dpi / w, (at.h / 72) * dpi / h)) : 1, nw = Math.max(1, Math.round(w * k)), nh = Math.max(1, Math.round(h * k));
     const c = new OffscreenCanvas(nw, nh), g = c.getContext("2d", { willReadFrequently: true }); g.imageSmoothingQuality = "high";
     g.drawImage(await createImageBitmap(img), 0, 0, nw, nh);
     const jpg = await encode(g.getImageData(0, 0, nw, nh), "jpeg", q);
     if (jpg.length >= s.contents.length) continue;
     const nd = d.clone(doc.context);
     for (const key of ["Filter", "DecodeParms", "Length"]) nd.delete(PDFName.of(key));
-    nd.set(PDFName.of("Filter"), PDFName.of("DCTDecode")); nd.set(PDFName.of("Width"), PDFNumber.of(nw)); nd.set(PDFName.of("Height"), PDFNumber.of(nh)); nd.set(PDFName.of("BitsPerComponent"), PDFNumber.of(8)); nd.set(PDFName.of("ColorSpace"), PDFName.of("DeviceRGB"));
+    nd.set(PDFName.of("Filter"), PDFName.of("DCTDecode")); nd.set(PDFName.of("Width"), PDFNumber.of(nw)); nd.set(PDFName.of("Height"), PDFNumber.of(nh)); nd.set(PDFName.of("BitsPerComponent"), PDFNumber.of(8)); if (!colour.keep) nd.set(PDFName.of("ColorSpace"), PDFName.of("DeviceRGB"));
     doc.context.assign(ref, PDFRawStream.of(nd, jpg)); changed++;
   }
   return changed;
 }
 
-/** Bakes annotation appearances into page content, then removes the annotations. */
+/**
+ * Bakes annotation appearances into page content. Hidden annotations stay out of the page.
+ * One with no appearance to bake is kept as it is, and the number kept is returned.
+ */
 function flattenAnnots(doc: PDFDocument) {
+  let keptTotal = 0;
   for (const page of doc.getPages()) {
     const annots = page.node.Annots(); if (!annots) continue;
+    const kept: PDFObject[] = [];
     for (let i = 0; i < annots.size(); i++) {
       const a = annots.lookup(i); if (!(a instanceof PDFDict)) continue;
-      const ap = a.lookup(PDFName.of("AP")); if (!(ap instanceof PDFDict)) continue;
+      if (numOf(a, "F") & 0b100010) continue; // Hidden or NoView
+      const keep = () => { if (nameOf(a.lookup(PDFName.of("Subtype"))) !== "Widget") kept.push(annots.get(i)); };
+      const ap = a.lookup(PDFName.of("AP")); if (!(ap instanceof PDFDict)) { keep(); continue; }
       let n: any = ap.get(PDFName.of("N")), obj = doc.context.lookup(n);
       if (obj instanceof PDFDict && !(obj instanceof PDFStream)) { const st = a.lookup(PDFName.of("AS")); n = st instanceof PDFName ? obj.get(st) : undefined; obj = n && doc.context.lookup(n); }
-      if (!(obj instanceof PDFStream) || !(n instanceof PDFRef)) continue;
+      if (!(obj instanceof PDFStream) || !(n instanceof PDFRef)) { keep(); continue; }
       const rect = (a.lookup(PDFName.of("Rect")) as PDFArray)?.asRectangle?.(), bb = obj.dict.lookup(PDFName.of("BBox")) as PDFArray;
-      if (!rect || !bb) continue;
+      if (!rect || !bb) { keep(); continue; }
       const b = bb.asRectangle(), sx = b.width ? rect.width / b.width : 1, sy = b.height ? rect.height / b.height : 1, name = page.node.newXObject("Flat", n);
       page.pushOperators(pushGraphicsState(), concatTransformation(sx, 0, 0, sy, rect.x - b.x * sx, rect.y - b.y * sy), PDFOperator.of("Do" as any, [name]), popGraphicsState());
     }
-    page.node.delete(PDFName.of("Annots"));
+    if (kept.length) page.node.set(PDFName.of("Annots"), doc.context.obj(kept)); else page.node.delete(PDFName.of("Annots"));
+    keptTotal += kept.length;
   }
   doc.catalog.delete(PDFName.of("AcroForm"));
+  return keptTotal;
 }
 
 /** Web and mail links only, hex-encoded so a crafted URL cannot break out of the PDF string. */
@@ -469,6 +534,13 @@ function stillInside(doc: PDFDocument) {
   const script = doc.catalog.has(PDFName.of("OpenAction")) || (names instanceof PDFDict && names.has(PDFName.of("JavaScript"))) || objs.some((o) => o instanceof PDFDict && nameOf(o.lookup(PDFName.of("S"))) === "JavaScript");
   return [comment ? "comments" : "", ...readTraits(doc, false).rich, script ? "scripts" : "", doc.catalog.has(PDFName.of("OCProperties")) ? "layer names" : ""].filter(Boolean);
 }
+/** Draws what a reader sees of a page, whatever its crop box and rotation, with its lower left corner at x, y. */
+async function drawVisible(d: PDFDocument, sheet: PDFPage, src: PDFPage, x: number, y: number, k: number) {
+  const c = src.getCropBox(), r = ((src.getRotation().angle % 360) + 360) % 360, ew = c.width * k, eh = c.height * k;
+  const em = await d.embedPage(src, { left: c.x, bottom: c.y, right: c.x + c.width, top: c.y + c.height });
+  const at = r === 90 ? { x, y: y + ew } : r === 180 ? { x: x + ew, y: y + eh } : r === 270 ? { x: x + eh, y } : { x, y };
+  sheet.drawPage(em, { ...at, xScale: k, yScale: k, rotate: degrees(-r) });
+}
 const DROPS_STRUCTURE = new Set(["merge-pdf", "split-pdf", "organize-pdf", "extract-pages", "delete-pages", "resize-pdf", "n-up-pdf", "booklet-pdf"]);
 /** Adds what every PDF-writing tool must disclose about its input, in one place. */
 function disclosed(tools: Record<string, Run>) {
@@ -562,19 +634,20 @@ export const pdfTools: Record<string, Run> = disclosed({
     return { ...out(`${stem(f.name)}-extract.pdf`, done.bytes, `${idx.length} pages.${done.note}`), reused: done.reused };
   }),
   "delete-pages": (files, p, ctx) => each(files, ctx, async (f) => {
-    const { doc, bytes } = await open(f), n = doc.getPageCount(), drop = new Set(p.pages?.trim() ? parseRanges(p.pages, n).flat() : []);
+    const { doc, bytes } = await open(f), n = doc.getPageCount(), drop = new Set(p.pages?.trim() ? parseRanges(p.pages, n).flat() : []), blanks: number[] = [];
     if (p.blank) for (let i = 0; i < n; i++) {
       if (drop.has(i)) continue;
       ctx.progress(i / n, `Checking page ${i + 1} of ${n}`);
-      const d = toImg(await render(ctx, bytes, f.id, i, 40)).data; let ink = 0;
-      for (let k = 0; k < d.length; k += 4) if (d[k] < 235 || d[k + 1] < 235 || d[k + 2] < 235) ink++;
-      if (ink / (d.length / 4) < 0.0015) drop.add(i);
+      // Blank means no marked pixel at all, because one short line can be a signature.
+      const d = toImg(await render(ctx, bytes, f.id, i, 100)).data; let marked = false;
+      for (let k = 0; k < d.length && !marked; k += 4) marked = d[k] < 250 || d[k + 1] < 250 || d[k + 2] < 250;
+      if (!marked) { drop.add(i); blanks.push(i + 1); }
     }
     if (!drop.size) throw new Say("Nothing to delete. Enter pages, or turn on blank page removal.");
     const keep = doc.getPageIndices().filter((i) => !drop.has(i));
     if (!keep.length) throw new Say("That would delete every page.");
     const done = await finishRemoval(await copy(doc, keep, true), p, ctx);
-    return { ...out(`${stem(f.name)}-trimmed.pdf`, done.bytes, `Removed ${drop.size} page${drop.size === 1 ? "" : "s"}, ${keep.length} left.${done.note}`), reused: done.reused };
+    return { ...out(`${stem(f.name)}-trimmed.pdf`, done.bytes, `Removed ${drop.size} page${drop.size === 1 ? "" : "s"}, ${keep.length} left.${blanks.length ? ` Blank: page${blanks.length === 1 ? "" : "s"} ${blanks.join(", ")}.` : ""}${done.note}`), reused: done.reused };
   }),
   "rotate-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc } = await open(f), pages = doc.getPages();
@@ -583,12 +656,11 @@ export const pdfTools: Record<string, Run> = disclosed({
   }),
   "resize-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc } = await open(f), d = await PDFDocument.create(), [a, b] = SIZES[p.size], m = p.margin;
+    flattenAnnots(doc); // An embedded page drops its annotations, so filled-in values are baked in first.
     for (const src of doc.getPages()) {
       const v = visual(src), land = p.orient === "landscape" || (p.orient === "auto" && v.W > v.H), [W, H] = land ? [b, a] : [a, b];
-      const em = await d.embedPage(src), r = ((src.getRotation().angle % 360) + 360) % 360, k = Math.min((W - 2 * m) / v.W, (H - 2 * m) / v.H), pg = d.addPage([W, H]);
-      const x = (W - v.W * k) / 2, y = (H - v.H * k) / 2, ew = em.width * k, eh = em.height * k;
-      const at = r === 90 ? { x, y: y + eh } : r === 180 ? { x: x + ew, y: y + eh } : r === 270 ? { x: x + eh, y } : { x, y };
-      pg.drawPage(em, { ...at, xScale: k, yScale: k, rotate: degrees(-r) });
+      const k = Math.min((W - 2 * m) / v.W, (H - 2 * m) / v.H), pg = d.addPage([W, H]);
+      await drawVisible(d, pg, src, (W - v.W * k) / 2, (H - v.H * k) / 2, k);
     }
     return out(`${stem(f.name)}-${p.size}.pdf`, await saved(d));
   }),
@@ -615,23 +687,23 @@ export const pdfTools: Record<string, Run> = disclosed({
     const { doc } = await open(f), d = await PDFDocument.create(), n = +p.n, [cols, rows] = ({ 2: [2, 1], 4: [2, 2], 6: [3, 2], 9: [3, 3] } as Record<number, number[]>)[n];
     const src = doc.getPages(), landscape = n === 2 || n === 6, [a, b] = SIZES[p.size], [W, H] = landscape ? [b, a] : [a, b], m = 18, cw = (W - 2 * m - (cols - 1) * p.gap) / cols, ch = (H - 2 * m - (rows - 1) * p.gap) / rows;
     let sheet: PDFPage;
+    flattenAnnots(doc);
     for (let i = 0; i < src.length; i++) {
       ctx.progress(i / src.length, `Page ${i + 1} of ${src.length}`);
       if (i % n === 0) sheet = d.addPage([W, H]);
-      const q = i % n, cx = m + (q % cols) * (cw + p.gap), cy = H - m - ch - Math.floor(q / cols) * (ch + p.gap), v = visual(src[i]), r = ((src[i].getRotation().angle % 360) + 360) % 360, em = await d.embedPage(src[i]), k = Math.min(cw / v.W, ch / v.H), x = cx + (cw - v.W * k) / 2, y = cy + (ch - v.H * k) / 2, ew = em.width * k, eh = em.height * k;
-      const at = r === 90 ? { x, y: y + eh } : r === 180 ? { x: x + ew, y: y + eh } : r === 270 ? { x: x + eh, y } : { x, y };
-      sheet.drawPage(em, { ...at, xScale: k, yScale: k, rotate: degrees(-r) });
+      const q = i % n, cx = m + (q % cols) * (cw + p.gap), cy = H - m - ch - Math.floor(q / cols) * (ch + p.gap), v = visual(src[i]), k = Math.min(cw / v.W, ch / v.H), x = cx + (cw - v.W * k) / 2, y = cy + (ch - v.H * k) / 2;
+      await drawVisible(d, sheet, src[i], x, y, k);
       if (p.border) sheet.drawRectangle({ x, y, width: v.W * k, height: v.H * k, borderColor: rgb(0.6, 0.6, 0.6), borderWidth: 0.5 });
     }
     return [out(`${stem(f.name)}-${n}up.pdf`, await saved(d), `${d.getPageCount()} sheets`)];
   },
   "booklet-pdf": async ([f], p, ctx) => {
     const { doc } = await open(f), d = await PDFDocument.create(), src = doc.getPages(), total = Math.ceil(src.length / 4) * 4, [a, b] = SIZES[p.size], W = b, H = a, cw = W / 2;
+    flattenAnnots(doc);
     const place = async (sheet: PDFPage, idx: number, left: boolean) => {
       if (idx >= src.length) return;
-      const v = visual(src[idx]), r = ((src[idx].getRotation().angle % 360) + 360) % 360, em = await d.embedPage(src[idx]), k = Math.min(cw / v.W, H / v.H), x = (left ? 0 : cw) + (cw - v.W * k) / 2, y = (H - v.H * k) / 2, ew = em.width * k, eh = em.height * k;
-      const at = r === 90 ? { x, y: y + eh } : r === 180 ? { x: x + ew, y: y + eh } : r === 270 ? { x: x + eh, y } : { x, y };
-      sheet.drawPage(em, { ...at, xScale: k, yScale: k, rotate: degrees(-r) });
+      const v = visual(src[idx]), k = Math.min(cw / v.W, H / v.H);
+      await drawVisible(d, sheet, src[idx], (left ? 0 : cw) + (cw - v.W * k) / 2, (H - v.H * k) / 2, k);
     };
     for (let i = 0; i < total / 2; i++) {
       ctx.progress(i / (total / 2), "Imposing pages");
@@ -652,9 +724,14 @@ export const pdfTools: Record<string, Run> = disclosed({
   }),
   "linearize-pdf": (files, p, ctx) => each(files, ctx, async (f) => { const { bytes } = await open(f); return out(`${stem(f.name)}-web.pdf`, (await qpdf(bytes, (i, o) => ["--linearize", i, o])).bytes); }),
   "repair-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
-    const { bytes, log } = await qpdf(await bytesOf(f), (i, o) => ["--object-streams=generate", i, o]);
-    const n = log.split("\n").filter((l) => /WARNING/i.test(l)).length;
-    return out(`${stem(f.name)}-repaired.pdf`, bytes, n ? `Fixed ${n} problem${n === 1 ? "" : "s"} in the file structure.` : "No damage found.");
+    const input = await bytesOf(f), { bytes, warned } = await qpdf(input, (i, o) => ["--object-streams=generate", i, o]).catch(async (e) => {
+      // Some damage stops this qpdf build but not pdf-lib's more forgiving parser.
+      if (e instanceof Say && /password/.test(e.message)) throw e;
+      try { return { bytes: await (await PDFDocument.load(input, { updateMetadata: false, throwOnInvalidObject: false })).save(), warned: true }; }
+      catch { throw new Say(`${f.name} is too damaged to repair.`); }
+    });
+    const pages = (await PDFDocument.load(bytes, { updateMetadata: false })).getPageCount(), count = `${pages} page${pages === 1 ? "" : "s"}`;
+    return out(`${stem(f.name)}-repaired.pdf`, bytes, warned ? `Rebuilt the file structure and recovered ${count}. Check that nothing is missing.` : `No damage found. ${count}.`);
   }),
   "grayscale-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc, bytes } = await open(f), d = await PDFDocument.create(), n = doc.getPageCount();
@@ -669,8 +746,8 @@ export const pdfTools: Record<string, Run> = disclosed({
     const { doc } = await open(f);
     refuseXfa(f);
     try { const form = doc.getForm(); if (form.getFields().length) { form.updateFieldAppearances(); form.flatten(); } } catch { /* A broken form still has its annotations flattened below. */ }
-    flattenAnnots(doc);
-    return out(`${stem(f.name)}-flat.pdf`, await saved(doc));
+    const kept = flattenAnnots(doc);
+    return out(`${stem(f.name)}-flat.pdf`, await saved(doc), kept ? `${kept} annotation${kept === 1 ? " has" : "s have"} no stored appearance, so ${kept === 1 ? "it was" : "they were"} kept as ${kept === 1 ? "an annotation" : "annotations"}.` : undefined);
   }),
 
   "protect-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
@@ -789,11 +866,19 @@ export const pdfTools: Record<string, Run> = disclosed({
       const f = files[i], b = await bytesOf(f), fmt = sniff(b); let im;
       let upright = fmt === "jpeg";
       if (upright) { const exifr = (await import("exifr/dist/full.esm.mjs")).default; const o = await exifr.orientation(b).catch(() => 1); upright = !o || o === 1; }
-      if (upright) { const clean = stripJpeg(b); if (clean) try { im = await d.embedJpg(clean); } catch { im = null; } }
+      if (upright) {
+        const clean = stripJpeg(b), icc = jpegIcc(b);
+        if (clean) try {
+          im = await d.embedJpg(clean);
+          // pdf-lib labels every JPEG DeviceRGB, which would show a wide-gamut photo with the wrong colours.
+          if (icc && im.embedder?.colorSpace !== "DeviceCMYK" && String.fromCharCode(...icc.subarray(16, 20)) === "RGB ") { await im.embed(); (d.context.lookup(im.ref) as PDFStream).dict.set(PDFName.of("ColorSpace"), d.context.obj([PDFName.of("ICCBased"), d.context.register(d.context.flateStream(icc, { N: 3 }))])); }
+        } catch { im = null; }
+      }
       if (!im) {
         const img = await loadImage(f, { ...ctx, preview: false });
         let alpha = false; for (let k = 3; k < img.data.length; k += 4) if (img.data[k] < 255) { alpha = true; break; }
-        im = alpha ? await d.embedPng(await encode(img, "png")) : await d.embedJpg(await encode(img, "jpeg", 92));
+        // A PNG stays lossless. Other formats are already lossy, so a high-quality JPEG keeps the PDF a sensible size.
+        im = alpha || fmt === "png" ? await d.embedPng(await encode(img, "png")) : await d.embedJpg(await encode(img, "jpeg", 92));
       }
       let W = im.width * 0.75 + 2 * p.margin, H = im.height * 0.75 + 2 * p.margin;
       if (p.size !== "fit") { const [a, b2] = SIZES[p.size], land = p.orient === "landscape" || (p.orient === "auto" && im.width > im.height); [W, H] = land ? [b2, a] : [a, b2]; }
@@ -870,14 +955,19 @@ export const pdfTools: Record<string, Run> = disclosed({
       const paint = (s: ImageBitmap) => { const c = new OffscreenCanvas(w, h), g = c.getContext("2d", { willReadFrequently: true }); g.fillStyle = "#fff"; g.fillRect(0, 0, w, h); g.drawImage(s, 0, 0); return g.getImageData(0, 0, w, h); };
       const P = paint(x), Q = paint(y); let diff = 0;
       for (let k = 0; k < P.data.length; k += 4) {
-        if (Math.abs(P.data[k] - Q.data[k]) + Math.abs(P.data[k + 1] - Q.data[k + 1]) + Math.abs(P.data[k + 2] - Q.data[k + 2]) > 60) { diff++; P.data[k] = R; P.data[k + 1] = G; P.data[k + 2] = B; }
+        if (Math.abs(P.data[k] - Q.data[k]) + Math.abs(P.data[k + 1] - Q.data[k + 1]) + Math.abs(P.data[k + 2] - Q.data[k + 2]) > 12) { diff++; P.data[k] = R; P.data[k + 1] = G; P.data[k + 2] = B; }
         else { P.data[k] = 255 - (255 - P.data[k]) * 0.35; P.data[k + 1] = 255 - (255 - P.data[k + 1]) * 0.35; P.data[k + 2] = 255 - (255 - P.data[k + 2]) * 0.35; }
+      }
+      if (!diff) {
+        // Text can differ without visibly moving a pixel at this resolution.
+        const read = (o: { bytes: Uint8Array }, id: string) => ctx.main<string>("text", { doc: new Blob([o.bytes as BlobPart]), key: id, page: i });
+        if (JSON.stringify(await read(a, files[0].id)) !== JSON.stringify(await read(b, files[1].id))) diff = 1;
       }
       if (diff) changed.push(i + 1);
       const s = 72 / p.dpi, im = await d.embedJpg(await encode(P, "jpeg", 85));
       d.addPage([w * s, h * s]).drawImage(im, { x: 0, y: 0, width: w * s, height: h * s });
     }
-    return [out("comparison.pdf", await saved(d), changed.length ? `Differences on page${changed.length === 1 ? "" : "s"} ${changed.join(", ")}.` : "No visual differences.")];
+    return [out("comparison.pdf", await saved(d), changed.length ? `Differences on page${changed.length === 1 ? "" : "s"} ${changed.join(", ")}.` : `No differences found in the text or at ${p.dpi} dpi. Changes smaller than that would not show.`)];
   },
   "inspect-pdf": async ([f]) => {
     const raw = await bytesOf(f), head = new TextDecoder("latin1").decode(raw.subarray(0, 12)), encrypted = looksEncrypted(raw), lines: string[] = [`File: ${f.name} (${(f.size / 1048576).toFixed(2)} MB)`, `PDF version: ${head.match(/%PDF-([\d.]+)/)?.[1] ?? "unknown"}`, `Encrypted: ${encrypted ? "yes" : "no"}`];

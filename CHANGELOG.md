@@ -2,7 +2,7 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.7] - 2026-11-22
 
 ### Security
 
@@ -14,6 +14,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 ### Fixed
 
 - A failed model download asks for consent again
+- Compress PDF no longer inverts or recolours CMYK, spot-colour and `/Decode` images, and sizes each image by where it is drawn
+- Resize, N-up and Booklet keep cropped and rotated pages on the sheet, with filled-in form values
+- Blank page removal only takes pages with no marks at all, and names them
+- Flatten keeps hidden annotations hidden and keeps annotations it cannot bake in
+- Images to PDF keeps a PNG lossless and a JPEG's colour profile
+- Compare finds faint changes and text changes, and states the resolution it checked
+- Repair recovers more damaged files and reports the page count
 
 ## [0.1.6] - 2026-11-22
 
@@ -120,6 +127,7 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[0.1.7]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.7
 [0.1.6]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.6
 [0.1.5]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.5
 [0.1.4]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.4
