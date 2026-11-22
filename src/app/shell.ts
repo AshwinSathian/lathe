@@ -75,8 +75,11 @@ if (spindle) {
   (window as any).launchQueue?.setConsumer?.(async (p: any) => route(await Promise.all(p.files.map((h: any) => h.getFile()))));
 
   // The workpiece: a turned steel profile with brass collars, lit by a light that follows the pointer.
-  const c = spindle.querySelector("canvas"), gl = c.getContext("webgl2", { alpha: true, antialias: false, premultipliedAlpha: true });
-  if (gl) {
+  // Compiling the shader is slow on phones, so it waits until the page has finished its first work.
+  const c = spindle.querySelector("canvas"), whenIdle = (fn: () => void) => ("requestIdleCallback" in window ? requestIdleCallback(fn, { timeout: 1500 }) : setTimeout(fn, 200));
+  whenIdle(() => {
+    const gl = c.getContext("webgl2", { alpha: true, antialias: false, premultipliedAlpha: true });
+    if (!gl) return;
     const FS = `#version 300 es
 precision highp float; in vec2 v; out vec4 o; uniform float T, A; uniform vec2 R, L; uniform vec3 B;
 float sb(float a,float b,float x){return smoothstep(a,b,x);}
@@ -113,5 +116,5 @@ in vec2 p; out vec2 v; void main(){ v=p*.5+.5; gl_Position=vec4(p,0,1); }`;
     document.addEventListener("visibilitychange", wake);
     addEventListener("resize", () => (still ? frame(performance.now()) : wake()));
     frame(performance.now());
-  }
+  });
 }

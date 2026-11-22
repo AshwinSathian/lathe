@@ -8,6 +8,9 @@ const noun = t.kind === "pdf" && !t.accepts.includes("image") ? "PDF" : t.kind =
 const title = `${t.name} free, no upload | Lathe`;
 const description = `${t.blurb} Runs in your browser, so your ${noun}s stay private.`.slice(0, 158);
 const related = tools.filter((x) => x.id !== t.id && x.kind === t.kind && x.group === t.group && !x.run).slice(0, 7);
+const [from, to] = t.id.split("-to-");
+const conversions = tools.filter((x) => x.run === "convert-image" && x.id !== t.id);
+const nearby = t.id === "convert-image" ? conversions : t.run === "convert-image" ? conversions.filter((x) => x.id.startsWith(`${from}-to-`) || x.id.endsWith(`-to-${to}`)) : [];
 const steps = t.noInput ? ["Write or paste your text, or drop in a file.", "Adjust the settings.", `Select ${t.name} and download the result.`] : [`Drop your ${noun}${t.multi ? "s" : ""} on the bench, or click to choose.`, t.editor === "pages" ? "Drag pages into order, and rotate or delete any you like." : t.editor ? "Mark up the page or image directly." : t.controls.length ? "Adjust the settings." : "Check the file is the right one.", `Select ${t.name} and download the result.`];
 const uploaded = `No. ${t.name} runs entirely in your browser${t.model ? `. The ${t.model.name} model (${t.model.size}) is downloaded to your device once, after you agree, and your file is never sent anywhere` : ", and your file is never sent anywhere"}.`;
 const faq = [["Are my files uploaded?", uploaded], ["How does it work?", t.detail], ["Is it free?", "Yes. There is no account, watermark or limit on how many files you process. The practical limit is your device's memory."]];
@@ -27,10 +30,12 @@ const ld = [
     </div>
     <div class="notes">
       <article>
+        {t.guide && <><h2>When to convert {t.name}</h2><p>{t.guide}</p></>}
         <h2>How to use {t.name}</h2>
         <ol>{steps.map((s) => <li>{s}</li>)}</ol>
         {faq.map(([q, a]) => <><h3>{q}</h3><p>{a}</p></>)}
       </article>
+      {nearby.length > 0 && <nav aria-label="Other conversions"><h2>Other conversions</h2><ul>{nearby.map((x) => <li><a href={`/${x.id}`}>{x.name}</a></li>)}</ul></nav>}
       {related.length > 0 && <nav aria-label="Related tools"><h2>Related tools</h2><ul>{related.map((x) => <li><a href={`/${x.id}`}>{x.name}</a></li>)}</ul></nav>}
     </div>
   </div>

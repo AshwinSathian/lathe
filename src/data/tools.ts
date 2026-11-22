@@ -25,6 +25,7 @@ export interface Tool {
   tech: string;
   controls: Control[];
   preset?: Record<string, unknown>;
+  guide?: string; // What this particular conversion is for and what it costs
 }
 
 const r = (k: string, label: string, min: number, max: number, step: number, def: number, unit = "", when?: Record<string, unknown>): Control => ({ k, type: "range", label, min, max, step, def, unit, when });
@@ -126,10 +127,35 @@ const conversions: [string, string, string, string][] = [
   ["png", "jpg", "jpeg", "images"], ["jpg", "png", "png", "photos"], ["webp", "jpg", "jpeg", "web images"], ["webp", "png", "png", "web images"], ["png", "webp", "webp", "images"], ["jpg", "webp", "webp", "photos"],
   ["jpg", "avif", "avif", "photos"], ["png", "avif", "avif", "images"], ["avif", "jpg", "jpeg", "AVIF images"], ["avif", "png", "png", "AVIF images"], ["jpg", "jxl", "jxl", "photos"], ["jxl", "jpg", "jpeg", "JPEG XL images"], ["svg", "png", "png", "vector files"], ["png", "ico", "ico", "icons"], ["tiff", "jpg", "jpeg", "scans"], ["bmp", "png", "png", "bitmaps"], ["gif", "png", "png", "GIFs"],
 ];
+// Written per pair, because the reason to convert and what is lost differ for each.
+const GUIDES: Record<string, string> = {
+ "heic-to-jpg": "JPG opens in almost every app, which HEIC does not. The file usually gets larger at the same quality, transparency is lost, and Display P3 colour is converted to sRGB.",
+ "heic-to-png": "PNG is lossless, so nothing further is lost after decoding, and it keeps transparency. Expect a file several times larger than the HEIC.",
+ "heic-to-webp": "WebP suits iPhone photos headed for a website, because current browsers all display it. It is usually smaller than a JPG of similar quality.",
+ "jpg-to-heic": "HEIC usually stores a photo in less space than JPG. Re-encoding cannot bring back detail the JPG already lost, so keep the original if quality matters.",
+ "png-to-heic": "HEIC makes a photo far smaller than PNG but is lossy, so use it for photos rather than screenshots or line art. Some older apps cannot open it.",
+ "png-to-jpg": "JPG has no transparency, so transparent areas are filled with the background colour you choose. It shrinks photos well but softens sharp text and line art.",
+ "jpg-to-png": "PNG stops further quality loss each time you edit and save, but it cannot restore what JPG compression removed. The file will usually be larger.",
+ "webp-to-jpg": "Use this when an app or upload form rejects WebP. Transparency is filled with your background colour, and an animated WebP becomes its first frame.",
+ "webp-to-png": "PNG keeps WebP's transparency and opens in older design tools. An animated WebP becomes its first frame.",
+ "png-to-webp": "WebP keeps transparency and is usually much smaller than PNG, which helps pages load faster. Use a high quality setting for screenshots and text.",
+ "jpg-to-webp": "WebP usually makes a web photo smaller than the same JPG at similar quality. Each re-encode loses a little detail, so convert from your best original.",
+ "jpg-to-avif": "AVIF often gives the smallest file for a photo, at the cost of slower encoding. Current browsers display it, but many desktop apps do not.",
+ "png-to-avif": "AVIF keeps transparency and can shrink large graphics a long way. It is lossy at these settings, so keep the PNG as your master copy.",
+ "avif-to-jpg": "Use this when software cannot open AVIF. JPG has no transparency, so transparent areas are filled with your background colour.",
+ "avif-to-png": "PNG opens in nearly every editor and keeps AVIF's transparency. The file will be much larger because PNG is lossless.",
+ "jpg-to-jxl": "JPEG XL compresses photos well, but browser and app support is still limited, so check where the file will be opened before you replace a JPG.",
+ "jxl-to-jpg": "Use this to share a JPEG XL image with apps that cannot open it. Lathe decodes it in WebAssembly, so your browser does not need JPEG XL support.",
+ "svg-to-png": "A PNG is a fixed grid of pixels, so it will not stay sharp if enlarged later. Scripts in the SVG are not run, and the PNG works where SVG uploads are blocked.",
+ "png-to-ico": "An ICO file holds small icons for Windows and browser tabs. For a full set of favicon sizes, use the Favicon generator.",
+ "tiff-to-jpg": "TIFF scans can be very large, and JPG makes them easy to email. Only the first page of a multi-page TIFF is converted, and 16-bit depth is reduced to 8-bit.",
+ "bmp-to-png": "PNG is lossless like BMP, so every pixel stays the same while the file gets smaller.",
+ "gif-to-png": "PNG keeps every pixel of a still GIF exactly. An animated GIF becomes its first frame, so use GIF to frames to export them all."
+};
 const up = (x: string) => ({ jpg: "JPG", png: "PNG", webp: "WebP", heic: "HEIC", avif: "AVIF", jxl: "JPEG XL", svg: "SVG", ico: "ICO", tiff: "TIFF", bmp: "BMP", gif: "GIF" })[x];
 const convertControls = base.find((x) => x.id === "convert-image").controls.filter((x) => x.k !== "format");
 const conv: Tool[] = conversions.map(([from, to, format, what]) => ({
-  id: `${from}-to-${to}`, run: "convert-image", name: `${up(from)} to ${up(to)}`, kind: "image", group: "Convert", accepts: IMG, multi: true, live: true, tech: to === "heic" ? "WebCodecs HEVC" : from === "heic" ? "libheif in WebAssembly" : "WebAssembly codecs", preset: { format },
+  id: `${from}-to-${to}`, guide: GUIDES[`${from}-to-${to}`], run: "convert-image", name: `${up(from)} to ${up(to)}`, kind: "image", group: "Convert", accepts: IMG, multi: true, live: true, tech: to === "heic" ? "WebCodecs HEVC" : from === "heic" ? "libheif in WebAssembly" : "WebAssembly codecs", preset: { format },
   blurb: `Convert ${what} from ${up(from)} to ${up(to)} in your browser, in batches, with no upload.`,
   detail: to === "heic" ? `Uses your browser's own HEVC encoder, then writes a standard HEIC file. Safari supports this today; other browsers will tell you if they cannot.` : from === "heic" ? `Chrome and Firefox cannot open HEIC on their own, so Lathe decodes it with libheif in WebAssembly and keeps the photo's orientation.` : `Decoded and re-encoded on your device. Drop a whole folder's worth and download one ZIP.`,
   controls: convertControls,

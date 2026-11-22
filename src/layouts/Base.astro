@@ -22,7 +22,7 @@ const og = new URL("/og.png", Astro.site).href;
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e8ecf1" />
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101b30" />
   <meta property="og:type" content="website" /><meta property="og:site_name" content="Lathe" /><meta property="og:title" content={title} /><meta property="og:description" content={description} /><meta property="og:url" content={url} /><meta property="og:image" content={og} /><meta property="og:image:width" content="1200" /><meta property="og:image:height" content="630" />
-  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:card" content="summary_large_image" /><meta name="twitter:image" content={og} />
   {jsonld.map((x) => <script is:inline type="application/ld+json" set:html={JSON.stringify(x).replace(/</g, "\\u003c")} />)}
 </head>
 <body>

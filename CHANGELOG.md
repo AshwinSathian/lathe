@@ -2,6 +2,16 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Each conversion page explains when to use it and what it loses, and links to related conversions
+
+### Changed
+
+- The home page animation starts after the page has loaded, so phones respond sooner
+
 ## [0.1.9] - 2026-11-22
 
 ### Added
