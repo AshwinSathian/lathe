@@ -93,27 +93,35 @@ async function copyOnly(d: PDFDocument, src: PDFDocument, idx: number[]) {
   } finally { undo.forEach((f) => f()); }
 }
 const copy = async (src: PDFDocument, idx: number[]) => { const d = await PDFDocument.create(); (await copyOnly(d, src, idx)).forEach((x) => d.addPage(x)); return d; };
+/** Colour profiles are recognised by their file signature, never by the name they are stored under. */
+function isIccProfile(o: PDFStream) {
+  if (!o.dict.has(PDFName.of("N"))) return false;
+  try { const b = o instanceof PDFRawStream ? decodePDFRawStream(o).decode() : o.getContents(); return String.fromCharCode(...b.subarray(36, 40)) === "acsp"; }
+  catch { return false; }
+}
 /**
- * Every stream a page can show: its content, images, forms, patterns, annotation appearances and Type 3 glyphs.
- * Stops at other pages and parents. Skips ordinary fonts and colour profiles, which hold no page content and are shared by design.
+ * Every stream a page can show: content, images, forms, patterns, annotation appearances and Type 3 glyphs.
+ * Follows every key, because resource names such as /P are chosen by the file. Stops only at the page tree,
+ * ordinary font dictionaries and colour profiles, which hold no page content and are shared by design.
  */
 function pageStreams(doc: PDFDocument, page: PDFPage) {
-  const found = new Set<PDFRef>(), seen = new Set<unknown>(), skip = ["Parent", "P", "ColorSpace", "Metadata"].map((k) => PDFName.of(k));
-  const stack: unknown[] = [...page.node.entries().filter(([k]) => !skip.includes(k)).map(([, v]) => v), page.node.Resources()];
+  const found = new Set<PDFRef>(), seen = new Set<unknown>(), parent = PDFName.of("Parent");
+  const stack: unknown[] = [...page.node.entries().filter(([k]) => k !== parent).map(([, v]) => v), page.node.Resources()];
   while (stack.length) {
     const v = stack.pop();
     if (!v || seen.has(v)) continue;
     seen.add(v);
     if (v instanceof PDFRef) {
       const o = doc.context.lookup(v);
-      if (isPage(o)) continue;
-      if (o instanceof PDFStream) found.add(v);
+      if (isPage(o) || (o instanceof PDFDict && nameOf(o.lookup(PDFName.of("Type"))) === "Pages")) continue;
+      if (o instanceof PDFStream) { if (isIccProfile(o)) continue; found.add(v); }
       stack.push(o);
     } else if (v instanceof PDFArray) stack.push(...v.asArray());
+    else if (v instanceof PDFStream) stack.push(...v.dict.values());
     else if (v instanceof PDFDict) {
       if (nameOf(v.lookup(PDFName.of("Type"))) === "Font" && nameOf(v.lookup(PDFName.of("Subtype"))) !== "Type3") continue;
-      for (const [k, x] of v.entries()) if (!skip.includes(k)) stack.push(x);
-    } else if (v instanceof PDFStream) stack.push(v.dict);
+      stack.push(...v.values());
+    }
   }
   return found;
 }

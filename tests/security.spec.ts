@@ -117,6 +117,22 @@ test("redaction keeps pages selectable when they share only an ordinary font", a
   const out = await run(page, "redact-pdf", file("font.pdf", Buffer.from(await d.save())), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
   expect(hasSecret(out)).toBe(false); expect(plain(out)).toMatch(/4b455054/i);
 });
+for (const name of ["P", "Parent", "Metadata", "ColorSpace"]) test(`redaction is not fooled by a shared image stored under the name /${name}`, async ({ page }) => {
+  const d = await PDFDocument.create(), jpg = await d.embedJpg(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#c33" } }).jpeg().toBuffer()), a = d.addPage([300, 300]), b = d.addPage([300, 300]);
+  await d.flush();
+  for (const p of [a, b]) p.node.Resources().set(PDFName.of("XObject"), d.context.obj({ [name]: jpg.ref }));
+  const out = await run(page, "redact-pdf", file("named.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  const o = await PDFDocument.load(out); let same = 0;
+  for (const [, x] of o.context.enumerateIndirectObjects()) if ((x as any).dict?.lookup?.(PDFName.of("Width"))?.asNumber?.() === 64) same++;
+  expect(same).toBe(0);
+});
+test("redaction keeps pages selectable when they share only a colour profile", async ({ page }) => {
+  const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica), icc = new Uint8Array(128); icc.set([0x61, 0x63, 0x73, 0x70], 36);
+  const profile = d.context.register(d.context.stream(icc, { N: 3 }));
+  for (const x of ["TOPSECRET", "KEPT"]) { const p = d.addPage([300, 300]); p.drawText(x, { x: 20, y: 200, size: 20, font: f }); p.node.Resources().set(PDFName.of("ColorSpace"), d.context.obj({ CS0: [PDFName.of("ICCBased"), profile] })); }
+  const out = await run(page, "redact-pdf", file("icc.pdf", Buffer.from(await d.save({ useObjectStreams: false }))), { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 1 }] });
+  expect(hasSecret(out)).toBe(false); expect(plain(out)).toMatch(/4b455054/i);
+});
 test("metadata wipe reaches XMP on pages and images", async ({ page }) => {
   const d = await PDFDocument.create(), p = d.addPage([200, 200]), xmp = d.context.register(d.context.stream("<x:xmpmeta>HIDDENNAME</x:xmpmeta>", { Type: "Metadata", Subtype: "XML" }));
   p.node.set(PDFName.of("Metadata"), xmp); p.node.set(PDFName.of("PieceInfo"), d.context.obj({ App: { Private: PDFString.of("HIDDENNAME") } }));

@@ -2,6 +2,12 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-11-22
+
+### Security
+
+- Redaction no longer misses a shared image stored under a resource name such as `/P` or `/Metadata`
+
 ## [0.1.1] - 2026-11-22
 
 ### Security
@@ -35,5 +41,6 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[0.1.2]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.2
 [0.1.1]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.1
 [0.1.0]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.0
