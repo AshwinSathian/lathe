@@ -2,12 +2,11 @@ import { test, expect, type Page } from "./fixture";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { unzipSync } from "fflate";
 import { tools } from "../src/data/tools";
+import { input, params } from "./tool-cases";
 
 const F = (n: string) => `tests/fixtures/${n}`;
 const magic = (b: Buffer) => b.subarray(0, 4).toString("latin1") === "%PDF" ? "pdf" : b[0] === 0xff && b[1] === 0xd8 ? "jpeg" : b[0] === 0x89 && b[1] === 0x50 ? "png" : b.subarray(0, 3).toString() === "GIF" ? "gif" : b.subarray(8, 12).toString() === "WEBP" ? "webp" : b.subarray(4, 8).toString() === "ftyp" ? b.subarray(8, 12).toString() : b[0] === 0x50 && b[1] === 0x4b ? "zip" : b.subarray(0, 2).toString() === "BM" ? "bmp" : b[0] === 0 && b[2] === 1 ? "ico" : b.subarray(0, 2).toString() === "II" || b.subarray(0, 2).toString() === "MM" ? "tiff" : (b[0] === 0xff && b[1] === 0x0a) || b.subarray(4, 8).toString() === "JXL " ? "jxl" : b.includes("<svg") ? "svg" : "text";
 
-const input: Record<string, string[]> = { "optimize-svg": ["logo.svg"], "svg-to-png": ["logo.svg"], "heic-to-jpg": ["photo.heic"], "heic-to-png": ["photo.heic"], "heic-to-webp": ["photo.heic"], "webp-to-jpg": ["photo.webp"], "webp-to-png": ["photo.webp"], "avif-to-jpg": ["photo.avif"], "avif-to-png": ["photo.avif"], "tiff-to-jpg": ["photo.tiff"], "gif-to-png": ["photo.gif"], "png-to-jpg": ["photo.png"], "png-to-webp": ["photo.png"], "png-to-avif": ["photo.png"], "png-to-heic": ["photo.png"], "png-to-ico": ["small.png"], "bmp-to-png": ["photo.png"], "fill-pdf": ["form.pdf"], "markdown-to-pdf": ["notes.md"], "delete-pages": ["blank.pdf"] };
-const params: Record<string, object> = { "split-pdf": { mode: "ranges", ranges: "1-2, 3-5" }, "extract-pages": { pages: "2-3" }, "protect-pdf": { password: "hunter2", noCopy: true }, "redact-pdf": { regions: [{ page: 0, x: 0, y: 0, w: 1, h: 0.2 }] }, "censor-image": { regions: [{ page: 0, x: 0.1, y: 0.1, w: 0.3, h: 0.3 }] }, "delete-pages": { blank: true }, "pdf-metadata": { wipe: true }, "fill-pdf": { values: { "full.name": "Asha", agree: true } } };
 const expected: Record<string, string> = { "compress-image": "jpeg", "merge-pdf": "pdf", "split-pdf": "zip", "social-resize": "zip", "favicon-generator": "zip", "split-image": "zip", "sprite-sheet": "zip", "make-gif": "gif", "vectorize-image": "svg", "pdf-to-images": "zip", "extract-images": "zip", "images-to-pdf": "pdf" };
 // Network models are covered in ai.spec.ts. gif-to-frames needs an animation, sign-pdf needs placement: both have their own tests below.
 const skip = new Set(["remove-background", "upscale-image", "ocr-image", "ocr-pdf", "blur-faces", "unlock-pdf", "sign-pdf", "gif-to-frames"]);

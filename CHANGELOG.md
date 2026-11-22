@@ -8,6 +8,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 
 - Each conversion page explains when to use it and what it loses, and links to related conversions
 
+### Fixed
+
+- A damaged PDF in a page tool now says why it was refused instead of returning silently to the empty screen
+- Run stays off until an image has opened, so an unreadable file cannot be submitted
+- Passwords that start with a dash or @ now work in Protect PDF
+- Engine errors are replaced with plain messages, and expected refusals are no longer written to the console
+- Crop states that the cut area is hidden rather than removed, and keep-text redaction is labelled as weaker
+
 ### Changed
 
 - The home page animation starts after the page has loaded, so phones respond sooner

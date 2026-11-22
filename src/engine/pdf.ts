@@ -31,7 +31,7 @@ async function qpdfOnce(input: Uint8Array, args: (i: string, o: string) => strin
   } finally { console.log = l; console.error = er; }
   const text = log.join("\n");
   if (/invalid password/i.test(text)) throw new Say("That password is not correct for this PDF.");
-  if (code !== 0 && code !== 3) throw new Say(`This PDF could not be processed: ${text.split("\n").pop() || "it may be badly damaged"}.`);
+  if (code !== 0 && code !== 3) throw new Say("This PDF is damaged or incomplete, so it could not be processed. Try Repair PDF.");
   return { bytes: m.FS.readFile("/out.pdf") as Uint8Array, log: text, warned: code === 3 };
 }
 
@@ -751,7 +751,7 @@ export const pdfTools: Record<string, Run> = disclosed({
       if (w < 10 || h < 10) throw new Say(`Those margins leave nothing of page ${i + 1}.`);
       pg.setCropBox(c.x + L, c.y + B, w, h); pg.setTrimBox(c.x + L, c.y + B, w, h);
     }
-    return out(`${stem(f.name)}-cropped.pdf`, await saved(doc));
+    return out(`${stem(f.name)}-cropped.pdf`, await saved(doc), "The cut area is hidden, not removed from the file. Use Redact PDF if it must be gone.");
   }),
   "n-up-pdf": async ([f], p, ctx) => {
     const { doc, note } = await openForLayout(f, ctx), d = await PDFDocument.create(), n = +p.n, [cols, rows] = ({ 2: [2, 1], 4: [2, 2], 6: [3, 2], 9: [3, 3] } as Record<number, number[]>)[n];
@@ -824,7 +824,7 @@ export const pdfTools: Record<string, Run> = disclosed({
     const { bytes } = await open(f), rnd = crypto.getRandomValues(new Uint8Array(24)).reduce((s, x) => s + x.toString(16).padStart(2, "0"), "");
     // Without an owner password, anyone holding the open password could lift the restrictions.
     const owner = p.owner || rnd, limits = [...(p.noPrint ? ["--print=none"] : []), ...(p.noEdit ? ["--modify=none"] : []), ...(p.noCopy ? ["--extract=n"] : [])];
-    return out(`${stem(f.name)}-protected.pdf`, (await qpdf(bytes, (i, o) => ["--encrypt", p.password, owner, "256", ...limits, "--", i, o])).bytes, "Encrypted with AES-256. Keep the password safe: it cannot be recovered.");
+    return out(`${stem(f.name)}-protected.pdf`, (await qpdf(bytes, (i, o) => ["--encrypt", `--user-password=${p.password}`, `--owner-password=${owner}`, "--bits=256", ...limits, "--", i, o])).bytes, "Encrypted with AES-256. Keep the password safe: it cannot be recovered.");
   }),
   "unlock-pdf": (files, p, ctx) => each(files, ctx, async (f) => {
     const input = await bytesOf(f);
@@ -851,7 +851,7 @@ export const pdfTools: Record<string, Run> = disclosed({
       if (unit) pg.node.set(PDFName.of("UserUnit"), PDFNumber.of(unit));
     }
     const flat = n - kept.size;
-    return [out(`${stem(f.name)}-redacted.pdf`, await saved(d), everyPage ? "Every page is now an image, so nothing hidden remains in the file. Run OCR PDF if you need searchable text." : `Flattened ${flat} of ${n} page${n === 1 ? "" : "s"}. The content under the boxes is gone from the file.`)];
+    return [out(`${stem(f.name)}-redacted.pdf`, await saved(d), everyPage ? "Every page is now an image, so nothing hidden remains in the file. Run OCR PDF if you need searchable text." : `Flattened ${flat} of ${n} page${n === 1 ? "" : "s"}. The content under the boxes is gone. Keeping other pages selectable is best effort, so use full flatten for anything sensitive.`)];
   },
   "pdf-metadata": (files, p, ctx) => each(files, ctx, async (f) => {
     const { doc } = await open(f); let wiped = "";

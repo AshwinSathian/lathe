@@ -90,6 +90,11 @@ announcer.say = (m) => say(m);
 const addRegion = el("button", { className: "btn alt small addmark", type: "button", textContent: "Add box", disabled: true });
 addRegion.onclick = () => { const b: Box = { page: 0, x: 0.3, y: 0.42, w: 0.4, h: 0.16 }; boxes.push(b); const n = addBox(frame, b, boxes, syncMarks); syncMarks(); n.focus(); };
 if (tool.editor === "regions" && tool.kind === "image") extra.append(addRegion);
+if (engineId === "redact-pdf") {
+  const weaker = el("p", { className: "weaker", textContent: "Keeping text selectable is weaker. Pages you did not mark keep their original content, and Lathe cannot prove they hide nothing." });
+  const show = () => { weaker.hidden = params.flattenAll !== false; };
+  controlsHost.append(weaker); controlsHost.addEventListener("change", show); show();
+}
 const ranges = shown.filter((c) => c.type === "range");
 if (ranges.length >= 4) {
   const reset = el("button", { className: "btn alt small", type: "button", textContent: "Reset all" });
@@ -155,7 +160,11 @@ async function addFiles(list: File[]) {
   const used = tool.multi ? accepted : accepted.slice(0, 1), ignored = list.filter((f) => !used.includes(f));
   setNotice(ignored.length ? `Not added: ${listNames(ignored)}. ${tool.multi ? "This tool cannot use them." : "This tool works on one file at a time."}` : "");
   const next = await prepared(used.map((f) => ({ id: `f${++uid}`, name: f.name || "pasted-image.png", type: f.type, size: f.size, blob: f as Blob })));
-  if (!next.length) { if (files.length) { drawTray(); showCurrent(); } else resetTool(); return; }
+  if (!next.length) {
+    const why = notice.textContent; // Resetting clears the notice, and this is the only explanation the person gets.
+    if (files.length) { drawTray(); showCurrent(); } else resetTool();
+    setNotice(why); return;
+  }
   files = tool.multi ? [...files, ...next] : next;
   current = tool.multi ? files.length - next.length : 0;
   afterFilesChanged();
@@ -271,6 +280,8 @@ async function showPdf(f: In | Out, blob?: Blob) {
 const paint = (c: HTMLCanvasElement, b: ImageBitmap) => { c.width = b.width; c.height = b.height; c.getContext("2d").drawImage(b, 0, 0); };
 async function showImage(f: In) {
   view.className = "view"; view.replaceChildren(el("p", { textContent: "Opening…" }));
+  // A single file that turns out to be unreadable must not offer a Run button while it is being checked.
+  if (!tool.noInput && files.length < 2) go.disabled = true;
   let t: Out;
   try { [t] = await runTool("thumb", [f], {}, {}); }
   catch (e) { say((e as Error).message); view.replaceChildren(el("p", { style: "text-align:center;max-width:36ch", textContent: (e as Error).message })); if (!tool.noInput && files.length < 2) go.disabled = true; return; }

@@ -42,7 +42,8 @@ self.onmessage = async ({ data: m }) => {
     for (const o of outs) { if (o.bitmap) transfer.push(o.bitmap); else if (o.bytes) { o.bytes = o.bytes.slice(); transfer.push(o.bytes.buffer as ArrayBuffer); } }
     postMessage({ t: "done", job: m.job, outs }, { transfer });
   } catch (e) {
-    console.error(e);
+    // An expected refusal can name the file, so only real faults reach the console.
+    if (!(e instanceof Say)) console.error(e);
     postMessage({ t: "fail", job: m.job, error: e instanceof Say ? e.message : `Something went wrong: ${(e as Error).message}`, expected: e instanceof Say });
   }
 };

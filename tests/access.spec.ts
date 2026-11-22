@@ -55,6 +55,7 @@ test("a file can be removed by keyboard, and the tray has no nested buttons", as
 });
 test("focus moves to the download when a run finishes", async ({ page }) => {
   await open(page, "compress-image", "photo.jpg");
+  await expect(go(page)).toBeEnabled(); // Run stays off until the image has opened.
   await go(page).focus(); await page.keyboard.press("Enter");
   await expect(page.locator("#panel .results a[download]").first()).toBeFocused({ timeout: 30_000 });
 });

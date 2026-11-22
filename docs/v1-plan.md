@@ -51,6 +51,19 @@ Each slice ends with a failing test turned green, docs and CHANGELOG updated, an
 | 13 | Discovery | m18, m19 | Format-specific copy, internal links, per-tool cards |
 | 14 | Claims and release | m3, m5, m10, CodeQL, bar 13 to 16 | Claim audit, limits page, runbook, scheduled production check, manual device checklist |
 
+| 15 | Documentation and discovery | User request, 2026-11-22 | One source: `docs/*.md` renders to `/docs/*` and is served as Markdown. Guides, measured limits, per-tool cards and Markdown, entity graph, `llms-full.txt` |
+
+### Slice 15 checks
+
+17. Every file in `docs/` that a user or contributor needs has a page at `/docs/<slug>`, built from the same Markdown, with a visible last-updated date taken from git.
+18. Task guides exist for redaction, metadata removal, HEIC, PDF compression, signing, encryption, offline use and verifying the no-upload claim yourself. Each states what the tool cannot do.
+19. Every tool and doc page has a Markdown version, and `llms.txt` and `llms-full.txt` list them.
+20. Each tool has its own social card. Structured data validates, matches visible text, and contains no ratings, reviews or user counts.
+21. Sitemap entries carry real last-modified dates. No orphan pages, no broken internal links, one H1 per page, unique titles and descriptions, all enforced by a test.
+22. Every number on the site traces to a test or a measurement in the repo. Competitor statements are limited to what their own public docs say, with a link and a checked date.
+
+Search Console, Bing and third-party listings need the owner's accounts, so v1 ships the exact steps and does not claim any ranking or citation result.
+
 ## Out of v1
 
 - **PDF to Word and Excel.** Output quality is not proven.
