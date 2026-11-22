@@ -8,7 +8,7 @@ async function edit(browser: Browser, baseURL: string) {
   await page.goto("/adjust-image");
   const gl = await page.evaluate(() => !!new OffscreenCanvas(1, 1).getContext("webgl2"));
   await page.locator("#stage input[type=file]").first().setInputFiles("tests/fixtures/photo.png");
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   await page.evaluate(() => Object.assign((window as any).__lathe.params, { exposure: 0.4, contrast: 25, shadows: 20, highlights: -15, temperature: 18, tint: -6, saturation: 22, vibrance: 15, vignette: 30, format: "png" }));
   const go = page.locator("#panel > .btn").first(); await expect(go).toBeEnabled(); await go.click();
   await expect(page.locator("#panel .results h2, #panel .alert").first()).toBeVisible({ timeout: 60_000 });

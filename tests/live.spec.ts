@@ -18,7 +18,8 @@ test("every page is served, canonical and indexable", async ({ request }) => {
 test("security headers are present", async ({ request }) => {
   const h = (await request.get("/")).headers();
   expect(h["content-security-policy"]).toContain("frame-ancestors 'none'");
-  expect(h["content-security-policy"]).not.toContain("unsafe-eval'; ");
+  // 'wasm-unsafe-eval' is required for WebAssembly. Plain 'unsafe-eval' is never allowed, wherever it appears.
+  expect(h["content-security-policy"]).not.toContain("'unsafe-eval'");
   expect(h["strict-transport-security"]).toBeTruthy(); expect(h["x-content-type-options"]).toBe("nosniff");
   expect(h["cross-origin-opener-policy"]).toBe("same-origin"); expect(h["cross-origin-embedder-policy"]).toBe("credentialless");
 });

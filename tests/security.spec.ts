@@ -8,7 +8,7 @@ const file = (name: string, buffer: Buffer, mimeType = "application/pdf") => ({ 
 async function run(page: Page, id: string, f: any, params: object = {}) {
   await page.goto(`/${id}`);
   await page.locator("#stage input[type=file]").first().setInputFiles(f);
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   // The organiser publishes its page order once thumbnails are laid out, which would overwrite an earlier value.
   if (id === "organize-pdf") await page.waitForFunction(() => (window as any).__lathe.params.order?.length > 0);
   await page.evaluate((x) => Object.assign((window as any).__lathe.params, x), params);

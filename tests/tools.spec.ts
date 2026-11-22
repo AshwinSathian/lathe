@@ -20,7 +20,7 @@ async function open(page: Page, id: string, files: string[]) {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`/${id}`);
   await page.locator("#stage input[type=file]").first().setInputFiles(files.map(F));
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   return errors;
 }
 async function exec(page: Page, extra?: object) {
@@ -69,7 +69,7 @@ test("redaction removes the text from the file and leaves other pages selectable
   const d = await PDFDocument.create(), f = await d.embedFont(StandardFonts.Helvetica);
   for (const n of [1, 2]) d.addPage([400, 400]).drawText(`Alpha page ${n}`, { x: 40, y: 300, size: 20, font: f });
   await page.goto("/redact-pdf"); await page.locator("#stage input[type=file]").first().setInputFiles({ name: "t.pdf", mimeType: "application/pdf", buffer: Buffer.from(await d.save()) });
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   const [o] = await exec(page, { flattenAll: false, regions: [{ page: 0, x: 0, y: 0, w: 1, h: 0.5 }] });
   await expect(page.locator("#stage canvas").first()).toBeVisible();
   const t = await pdfText(page, o); expect(t).not.toContain("Alpha page 1"); expect(t).toContain("Alpha page 2");

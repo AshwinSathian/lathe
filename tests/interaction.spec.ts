@@ -5,7 +5,7 @@ import { PDFDocument } from "pdf-lib";
 import sharp from "sharp";
 
 const F = (n: string) => `tests/fixtures/${n}`;
-const open = async (page: Page, id: string, files: string[]) => { await page.goto(`/${id}`); await page.locator("#stage input[type=file]").first().setInputFiles(files.map(F)); await expect(page.locator("#stage .tray")).toBeVisible(); };
+const open = async (page: Page, id: string, files: string[]) => { await page.goto(`/${id}`); await page.locator("#stage input[type=file]").first().setInputFiles(files.map(F)); await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible(); };
 const run = async (page: Page) => {
   await page.locator("#panel > .btn").first().click();
   await expect(page.locator("#panel .results h2, #panel .alert").first()).toBeVisible({ timeout: 60_000 });
@@ -67,7 +67,7 @@ for (const [name, path, file] of [["home", "/", null], ["tool, empty", "/compres
   for (const colorScheme of ["light", "dark"] as const) test(`no serious accessibility issues: ${name}, ${colorScheme}`, async ({ page, browserName }) => {
     test.skip(browserName !== "chromium", "One engine is enough");
     await page.emulateMedia({ colorScheme }); await page.goto(path);
-    if (file) { await page.locator("#stage input[type=file]").first().setInputFiles(F(file)); await expect(page.locator("#stage .tray")).toBeVisible(); await page.waitForTimeout(800); }
+    if (file) { await page.locator("#stage input[type=file]").first().setInputFiles(F(file)); await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible(); await page.waitForTimeout(800); }
     const r = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
     expect(r.violations.filter((v) => ["serious", "critical"].includes(v.impact)).map((v) => `${v.id}: ${v.nodes.slice(0, 2).map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
   });

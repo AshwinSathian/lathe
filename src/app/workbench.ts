@@ -137,7 +137,7 @@ async function addFiles(list: File[]) {
   const used = tool.multi ? accepted : accepted.slice(0, 1), ignored = list.filter((f) => !used.includes(f));
   setNotice(ignored.length ? `Not added: ${listNames(ignored)}. ${tool.multi ? "This tool cannot use them." : "This tool works on one file at a time."}` : "");
   const next = await prepared(used.map((f) => ({ id: `f${++uid}`, name: f.name || "pasted-image.png", type: f.type, size: f.size, blob: f as Blob })));
-  if (!next.length) return;
+  if (!next.length) { if (files.length) { drawTray(); showCurrent(); } else resetTool(); return; }
   files = tool.multi ? [...files, ...next] : next;
   current = tool.multi ? files.length - next.length : 0;
   afterFilesChanged();
@@ -147,6 +147,11 @@ const NORMALISE = new Set(["redact-pdf", "sign-pdf", "delete-pages", "extract-pa
 async function prepared(list: In[]) {
   if (!NORMALISE.has(engineId)) return list;
   busy = true; go.disabled = true; prog.classList.add("on"); setProgress(0.1, "Checking the file…");
+  // The engine can take a moment to load, so the file appears straight away.
+  if (!view) {
+    stage.replaceChildren(view = el("div", { className: "view" }, el("p", { textContent: "Checking the file…" })), tray = el("div", { className: "tray intake" }));
+    tray.append(...list.map((f) => el("span", { className: "file" }, el("span", { className: "fname", textContent: f.name }))));
+  }
   const ok: In[] = [], notes: string[] = [];
   for (const f of list) {
     if (!isPdfFile(f)) { ok.push(f); continue; }
@@ -173,6 +178,7 @@ function afterFilesChanged() {
   if (!view) {
     stage.replaceChildren(view = el("div", { className: "view" }), tray = el("div", { className: "tray" }));
   }
+  tray.classList.remove("intake");
   drawTray();
   go.disabled = !ready();
   showCurrent();

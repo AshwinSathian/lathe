@@ -10,7 +10,7 @@ test.skip(({ browserName }) => browserName !== "chromium", "One engine is enough
 const run = async (page: Page, id: string, file: any, extra: object = {}) => {
   await page.goto(`/${id}`);
   await page.locator("#stage input[type=file]").first().setInputFiles(file);
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   await page.evaluate((x) => Object.assign((window as any).__lathe.params, x), extra);
   const go = page.locator("#panel > .btn").first();
   await expect(go).toBeEnabled({ timeout: 30_000 });

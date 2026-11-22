@@ -20,7 +20,7 @@ function holds(buf: Buffer, marker: string) {
 async function load(page: Page, id: string, file: string) {
   await page.goto(`/${id}`);
   await page.locator("#stage input[type=file]").first().setInputFiles(C(file));
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   await expect(page.locator("#panel > .btn").first()).toBeEnabled({ timeout: 20_000 }).catch(() => {});
 }
 async function run(page: Page, params: object = {}) {
@@ -55,7 +55,7 @@ test("a stray /Encrypt string cannot skip the page check", async ({ page }) => {
   const forged = Buffer.concat([readFileSync(C("differ.pdf")), Buffer.from("\n% /Encrypt\n")]);
   await page.goto("/delete-pages");
   await page.locator("#stage input[type=file]").first().setInputFiles({ name: "forged.pdf", mimeType: "application/pdf", buffer: forged });
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   await expect(page.locator("#panel > .btn").first()).toBeEnabled({ timeout: 20_000 });
   expect(holds(bytes(await run(page, { pages: "1" })), "DIFFSECRET")).toBe(false);
 });
@@ -91,7 +91,7 @@ test("signing warns before an existing signature is invalidated", async ({ page 
 for (const id of ["flatten-pdf", "fill-pdf"]) test(`${id} refuses an XFA form instead of deleting it`, async ({ page }) => {
   await page.goto(`/${id}`);
   await page.locator("#stage input[type=file]").first().setInputFiles(C("xfa.pdf"));
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   if (id === "flatten-pdf") { await page.locator("#panel > .btn").first().click(); }
   await expect(page.locator("#panel .alert")).toContainText("XFA");
 });

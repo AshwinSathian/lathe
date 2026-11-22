@@ -5,7 +5,7 @@ import { PDFDocument } from "pdf-lib";
 
 const F = (n: string) => `tests/fixtures/${n}`;
 const go = (page: Page) => page.locator("#panel > .btn").first();
-const open = async (page: Page, id: string, file: string) => { await page.goto(`/${id}`); await page.locator("#stage input[type=file]").first().setInputFiles(F(file)); await expect(page.locator("#stage .tray")).toBeVisible(); };
+const open = async (page: Page, id: string, file: string) => { await page.goto(`/${id}`); await page.locator("#stage input[type=file]").first().setInputFiles(F(file)); await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible(); };
 const firstSheet = async (page: Page) => { const s = page.locator(".docpage").first(); await expect(s.locator("canvas")).toBeVisible({ timeout: 20_000 }); return s; };
 const mark = async (page: Page) => {
   const b = await (await firstSheet(page)).boundingBox();
@@ -132,4 +132,18 @@ test("a damaged first file does not block the rest of the batch", async ({ page 
   await expect(go(page)).toBeEnabled();
   await go(page).click();
   await expect(page.locator("#panel .results a[download]")).toHaveCount(1, { timeout: 60_000 });
+});
+
+test.describe(() => {
+  test.use({ serviceWorkers: "block" });
+  test("a file shows at once while it is being checked", async ({ page }) => {
+    await page.route("**/qpdf*.wasm", async (r) => { await new Promise((res) => setTimeout(res, 1500)); await r.continue(); });
+    await page.goto("/delete-pages");
+    await page.locator("#stage input[type=file]").first().setInputFiles(F("a.pdf"));
+    await expect(page.locator("#stage .intake .fname")).toHaveText(["a.pdf"], { timeout: 1000 });
+    await expect(page.locator("#stage .view")).toContainText("Checking");
+    await expect(go(page)).toBeDisabled();
+    await expect(go(page)).toBeEnabled({ timeout: 20_000 });
+    await expect(page.locator("#stage .view")).not.toContainText("Checking");
+  });
 });

@@ -9,7 +9,7 @@ const pdf = (name: string, buffer: Buffer) => ({ name, mimeType: "application/pd
 async function run(page: Page, id: string, files: any, params: object = {}) {
   await page.goto(`/${id}`);
   await page.locator("#stage input[type=file]").first().setInputFiles(files);
-  await expect(page.locator("#stage .tray")).toBeVisible();
+  await expect(page.locator("#stage .tray:not(.intake)")).toBeVisible();
   await page.evaluate((x) => Object.assign((window as any).__lathe.params, x), params);
   const go = page.locator("#panel > .btn").first(); await expect(go).toBeEnabled({ timeout: 20_000 }); await go.click();
   await expect(page.locator("#panel .results h2, #panel .alert").first()).toBeVisible({ timeout: 90_000 });

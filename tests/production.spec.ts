@@ -7,7 +7,7 @@ import sharp from "sharp";
 test("the test hook is absent for a normal visitor", async ({ page }) => {
   await page.goto("/compress-image");
   await page.locator("#stage input[type=file]").first().setInputFiles("tests/fixtures/photo.jpg");
-  await page.locator("#stage .tray").waitFor();
+  await page.locator("#stage .tray:not(.intake)").waitFor();
   expect(await page.evaluate(() => "__lathe" in window)).toBe(false);
 });
 
