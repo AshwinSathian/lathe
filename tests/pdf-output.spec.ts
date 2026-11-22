@@ -135,4 +135,7 @@ test("flatten removes a hidden field's value from the file", async ({ page }) =>
   const { inflateSync } = await import("node:zlib"), text = bytes.toString("latin1"); let found = bytes.includes("HIDDENFIELDVALUE");
   for (const m of text.matchAll(/stream\r?\n/g)) { const at = m.index + m[0].length, end = bytes.indexOf("endstream", at); try { found ||= inflateSync(bytes.subarray(at, end), { finishFlush: 2 }).includes("HIDDENFIELDVALUE"); } catch { /* Not Flate. */ } }
   expect(found).toBe(false);
+  // The value can also be hex-encoded or live in an appearance stream, so a dropped widget must keep neither.
+  const out = await PDFDocument.load(bytes);
+  for (const [, o] of out.context.enumerateIndirectObjects()) if (o instanceof PDFDict && o.lookup(PDFName.of("Subtype")) === PDFName.of("Widget")) for (const k of ["AP", "V", "DV", "RV", "MK", "Contents"]) expect(o.has(PDFName.of(k)), k).toBe(false);
 });

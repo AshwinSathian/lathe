@@ -409,22 +409,26 @@ function flattenAnnots(doc: PDFDocument) {
       const a = annots.lookup(i); if (!(a instanceof PDFDict)) continue;
       // A flattened field's value must not outlive it, for example through a tagged PDF's structure tree.
       if (nameOf(a.lookup(PDFName.of("Subtype"))) === "Widget") for (let x: PDFDict | undefined = a, hops = 0; x && hops < 32; x = x.lookup(PDFName.of("Parent")) as PDFDict, hops++) { x.delete(PDFName.of("V")); x.delete(PDFName.of("DV")); }
-      if (numOf(a, "F") & 0b100010) continue; // Hidden or NoView
-      const keep = () => { if (nameOf(a.lookup(PDFName.of("Subtype"))) !== "Widget") kept.push(annots.get(i)); };
+      // A dropped annotation can stay reachable, for example from a tagged PDF's structure tree, so it keeps no content.
+      const scrub = () => { for (const k of ["AP", "RV", "V", "DV", "MK", "Contents"]) a.delete(PDFName.of(k)); };
+      if (numOf(a, "F") & 0b100010) { scrub(); continue; } // Hidden or NoView
+      const keep = () => { if (nameOf(a.lookup(PDFName.of("Subtype"))) !== "Widget") kept.push(annots.get(i)); else scrub(); };
       const shown = a.has(PDFName.of("OC")) ? layerShown(doc, a.get(PDFName.of("OC"))) : true;
-      if (shown === false) continue;
+      if (shown === false) { scrub(); continue; }
       if (shown === null) { keep(); continue; } // Never bake in what might be hidden.
       const ap = a.lookup(PDFName.of("AP")); if (!(ap instanceof PDFDict)) { keep(); continue; }
       let n: any = ap.get(PDFName.of("N")), obj = doc.context.lookup(n);
       if (obj instanceof PDFDict && !(obj instanceof PDFStream)) { const st = a.lookup(PDFName.of("AS")); n = st instanceof PDFName ? obj.get(st) : undefined; obj = n && doc.context.lookup(n); }
       if (!(obj instanceof PDFStream) || !(n instanceof PDFRef)) { keep(); continue; }
       const formLayer = obj.dict.has(PDFName.of("OC")) ? layerShown(doc, obj.dict.get(PDFName.of("OC"))) : true;
-      if (formLayer === false) continue;
+      if (formLayer === false) { scrub(); continue; }
       if (formLayer === null) { keep(); continue; }
       const rect = (a.lookup(PDFName.of("Rect")) as PDFArray)?.asRectangle?.(), bb = obj.dict.lookup(PDFName.of("BBox")) as PDFArray;
       if (!rect || !bb) { keep(); continue; }
       const b = bb.asRectangle(), sx = b.width ? rect.width / b.width : 1, sy = b.height ? rect.height / b.height : 1, name = page.node.newXObject("Flat", n);
       page.pushOperators(pushGraphicsState(), concatTransformation(sx, 0, 0, sy, rect.x - b.x * sx, rect.y - b.y * sy), PDFOperator.of("Do" as any, [name]), popGraphicsState());
+      // Now part of the page, so the widget itself needs nothing further.
+      if (nameOf(a.lookup(PDFName.of("Subtype"))) === "Widget") scrub();
     }
     if (kept.length) page.node.set(PDFName.of("Annots"), doc.context.obj(kept)); else page.node.delete(PDFName.of("Annots"));
     keptTotal += kept.length;
