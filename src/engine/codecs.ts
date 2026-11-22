@@ -44,7 +44,7 @@ function heifColour(b: Uint8Array) {
   const inner = boxes(meta.at + 4, meta.end), pitm = inner.find((x) => x.t === "pitm"), iprp = inner.find((x) => x.t === "iprp"); if (!pitm || !iprp) return null;
   const primary = b[pitm.at] === 0 ? v.getUint16(pitm.at + 4) : v.getUint32(pitm.at + 4), parts = boxes(iprp.at, iprp.end), ipco = parts.find((x) => x.t === "ipco"), ipma = parts.find((x) => x.t === "ipma"); if (!ipco || !ipma) return null;
   const props = boxes(ipco.at, ipco.end), version = b[ipma.at], wide = b[ipma.at + 3] & 1; let i = ipma.at + 8;
-  for (let n = v.getUint32(ipma.at + 4); n > 0; n--) {
+  for (let n = v.getUint32(ipma.at + 4); n > 0 && i < ipma.end; n--) {
     const id = version < 1 ? v.getUint16(i) : v.getUint32(i); i += version < 1 ? 2 : 4;
     const count = b[i++];
     for (let k = 0; k < count; k++) {
@@ -61,11 +61,18 @@ function heifColour(b: Uint8Array) {
 /** Red's chromaticity x from an ICC profile, enough to tell sRGB (0.436 in D50) from Display P3 (0.515). */
 function iccRedX(icc: Uint8Array) {
   const v = new DataView(icc.buffer, icc.byteOffset, icc.byteLength);
-  for (let n = v.getUint32(128), i = 132; n > 0; n--, i += 12) if (String.fromCharCode(...icc.subarray(i, i + 4)) === "rXYZ") return v.getInt32(v.getUint32(i + 4) + 8) / 65536;
+  if (icc.length < 132) return null;
+  // The tag count comes from the file, so the walk is limited to what the profile can hold.
+  for (let n = Math.min(v.getUint32(128), Math.floor((icc.length - 132) / 12)), i = 132; n > 0; n--, i += 12) {
+    if (String.fromCharCode(...icc.subarray(i, i + 4)) !== "rXYZ") continue;
+    const at = v.getUint32(i + 4);
+    return at + 12 <= icc.length ? v.getInt32(at + 8) / 65536 : null;
+  }
   return null;
 }
 function colourSpaceOf(b: Uint8Array) {
-  const c = heifColour(b);
+  let c: ReturnType<typeof heifColour>;
+  try { c = heifColour(b); } catch { return "other"; }
   if (!c) return "srgb";
   if ("icc" in c) { const x = iccRedX(c.icc); return x == null ? "other" : Math.abs(x - 0.515) < 0.012 ? "p3" : Math.abs(x - 0.436) < 0.012 ? "srgb" : "other"; }
   if (c.transfer === 16 || c.transfer === 18) return "other"; // PQ and HLG are HDR.

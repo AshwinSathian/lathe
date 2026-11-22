@@ -38,6 +38,16 @@ test("an image past the size limit is refused before decoding", async ({ page })
   await page.locator("#stage input[type=file]").first().setInputFiles({ name: "bomb.png", mimeType: "image/png", buffer: png });
   await expect(page.locator("#stage .view")).toContainText(/too large/i, { timeout: 15_000 });
 });
+test("a HEIC with a malformed colour profile cannot hang the tool", async ({ page }) => {
+  const { readFileSync } = await import("node:fs"), heic = Buffer.from(readFileSync(C("p3.heic"))), at = heic.indexOf("colrprof");
+  expect(at).toBeGreaterThan(0);
+  heic.writeUInt32BE(0xffffffff, at + 8 + 128); // The ICC tag count.
+  await page.goto("/heic-to-png");
+  await page.locator("#stage input[type=file]").first().setInputFiles({ name: "bad.heic", mimeType: "image/heic", buffer: heic });
+  const go = page.locator("#panel > .btn").first(); await expect(go).toBeEnabled({ timeout: 15_000 }); await go.click();
+  await expect(page.locator("#panel .results a[download]").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("#panel .results small").first()).toContainText("colour format");
+});
 test("face blur starts on the solid block and asks for review when it finds nothing", async ({ page }) => {
   await page.goto("/blur-faces");
   await expect(page.locator("#panel select").first()).toHaveValue("block");
