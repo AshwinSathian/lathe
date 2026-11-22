@@ -1,5 +1,6 @@
 // A mark, a result and a file must always belong together. These run through real pointer input.
 import { test, expect, type Page } from "./fixture";
+import { readFileSync } from "node:fs";
 import { PDFDocument } from "pdf-lib";
 
 const F = (n: string) => `tests/fixtures/${n}`;
@@ -96,10 +97,11 @@ for (const id of ["redact-pdf", "sign-pdf", "organize-pdf"]) test(`${id} explain
 });
 
 const batch = (page: Page, names: string[]) => page.evaluate(async (list) => {
-  const files = await Promise.all(list.map(async ([name, type, url]) => new File([url ? await (await fetch(url)).arrayBuffer() : new TextEncoder().encode("this is not a real file")], name, { type })));
+  const files = list.map(([name, type, b64]) => new File([b64 ? Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)) : new TextEncoder().encode("this is not a real file")], name, { type }));
   await (window as any).__lathe.addFiles(files);
 }, names.map((n) => JSON.parse(n)));
-const served = async (page: Page, file: string, type: string) => { await page.route(`**/__fixture/${file}`, (r) => r.fulfill({ path: F(file), contentType: type })); return JSON.stringify([file, type, `/__fixture/${file}`]); };
+// Bytes go in directly, because a service worker can answer a fetch before a test route sees it.
+const served = async (_page: Page, file: string, type: string) => JSON.stringify([file, type, readFileSync(F(file)).toString("base64")]);
 
 for (const [id, good, bad, type] of [["compress-image", "photo.jpg", "broken.jpg", "image/jpeg"], ["rotate-pdf", "a.pdf", "broken.pdf", "application/pdf"]]) test(`${id} keeps finished files when one fails`, async ({ page }) => {
   await page.goto(`/${id}`);
