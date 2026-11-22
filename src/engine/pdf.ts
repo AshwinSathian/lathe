@@ -1,6 +1,6 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFOperator, PDFRawStream, PDFRef, PDFStream, PDFHexString, PDFContentStream, decodePDFRawStream, StandardFonts, degrees, popGraphicsState, pushGraphicsState, rgb, concatTransformationMatrix as concatTransformation, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFOptionList, type PDFFont, type PDFObject, type PDFPage } from "pdf-lib";
 import { unzlibSync } from "fflate";
-import { Say, bytesOf, pagesIn, parseRanges, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
+import { Say, bytesOf, eachFile as each, pagesIn, parseRanges, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
 import { EXT, MIME, encode, load as loadImage, sniff } from "./codecs";
 import qpdfWasm from "@neslinesli93/qpdf-wasm/dist/qpdf.wasm?url";
 
@@ -44,12 +44,6 @@ async function open(f: In, p: any = {}): Promise<{ doc: PDFDocument; bytes: Uint
     return { doc: await PDFDocument.load(fixed, { updateMetadata: false }), bytes: fixed };
   }
 }
-
-const each = async (files: In[], ctx: Ctx, fn: (f: In) => Promise<Out | Out[]>) => {
-  const res: Out[] = [];
-  for (let i = 0; i < files.length; i++) { if (files.length > 1) ctx.progress(i / files.length, `${files[i].name} (${i + 1} of ${files.length})`); res.push(...[await fn(files[i])].flat()); }
-  return res;
-};
 
 const isPage = (o: unknown) => o instanceof PDFDict && nameOf(o.lookup(PDFName.of("Type"))) === "Page";
 /** True when following this object's references reaches a removed page, or an annotation that belongs to one. */

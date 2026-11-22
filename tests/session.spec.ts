@@ -94,3 +94,40 @@ for (const id of ["redact-pdf", "sign-pdf", "organize-pdf"]) test(`${id} explain
   await expect(page.locator("#stage .view")).toContainText(/cannot|damaged|password/i);
   await expect(go(page)).toBeDisabled();
 });
+
+const batch = (page: Page, names: string[]) => page.evaluate(async (list) => {
+  const files = await Promise.all(list.map(async ([name, type, url]) => new File([url ? await (await fetch(url)).arrayBuffer() : new TextEncoder().encode("this is not a real file")], name, { type })));
+  await (window as any).__lathe.addFiles(files);
+}, names.map((n) => JSON.parse(n)));
+const served = async (page: Page, file: string, type: string) => { await page.route(`**/__fixture/${file}`, (r) => r.fulfill({ path: F(file), contentType: type })); return JSON.stringify([file, type, `/__fixture/${file}`]); };
+
+for (const [id, good, bad, type] of [["compress-image", "photo.jpg", "broken.jpg", "image/jpeg"], ["rotate-pdf", "a.pdf", "broken.pdf", "application/pdf"]]) test(`${id} keeps finished files when one fails`, async ({ page }) => {
+  await page.goto(`/${id}`);
+  await batch(page, [await served(page, good, type), JSON.stringify([bad, type, ""])]);
+  await expect(page.locator(".tray .fname")).toHaveCount(2);
+  await expect(go(page)).toBeEnabled({ timeout: 20_000 });
+  await go(page).click();
+  await expect(page.locator("#panel .results a[download]")).toHaveCount(1, { timeout: 60_000 });
+  await expect(page.locator("#panel .notice")).toContainText(bad);
+  await expect(page.locator("#panel .notice")).toContainText("1 of 2");
+});
+
+test("a batch where every file fails explains why", async ({ page }) => {
+  await page.goto("/compress-image");
+  await batch(page, [JSON.stringify(["a.jpg", "image/jpeg", ""]), JSON.stringify(["b.jpg", "image/jpeg", ""])]);
+  await expect(page.locator(".tray .fname")).toHaveCount(2);
+  await expect(page.locator("#stage .view")).toContainText(/could not be read/i);
+  await expect(go(page)).toBeEnabled();
+  await go(page).click();
+  await expect(page.locator("#panel .alert")).toContainText("a.jpg");
+  await expect(page.locator("#panel .results a[download]")).toHaveCount(0);
+});
+
+test("a damaged first file does not block the rest of the batch", async ({ page }) => {
+  await page.goto("/compress-image");
+  await batch(page, [JSON.stringify(["broken.jpg", "image/jpeg", ""]), await served(page, "photo.jpg", "image/jpeg")]);
+  await expect(page.locator("#stage .view")).toContainText(/could not be read/i);
+  await expect(go(page)).toBeEnabled();
+  await go(page).click();
+  await expect(page.locator("#panel .results a[download]")).toHaveCount(1, { timeout: 60_000 });
+});

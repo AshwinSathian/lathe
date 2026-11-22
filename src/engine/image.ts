@@ -1,18 +1,10 @@
-import { Say, bytesOf, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
+import { Say, bytesOf, eachFile as each, stem, zipOut, type Ctx, type In, type Out, type Run } from "./core";
 import { EXT, MIME, encode, flatten, hasAlpha, ico, lanczos, load, pngBytes, resolveFormat, save, sniff, toData } from "./codecs";
 import { LOOKS, shade } from "./gl";
 
 const canvas = (w: number, h: number) => { const c = new OffscreenCanvas(Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); const g = c.getContext("2d", { willReadFrequently: true }); g.imageSmoothingQuality = "high"; return { c, g }; };
 const bmp = (img: ImageData) => createImageBitmap(img);
 const dataOf = (c: OffscreenCanvas) => c.getContext("2d").getImageData(0, 0, c.width, c.height);
-const each = async (files: In[], ctx: Ctx, fn: (f: In, i: number) => Promise<Out | Out[]>) => {
-  const out: Out[] = [];
-  for (let i = 0; i < files.length; i++) {
-    if (files.length > 1) ctx.progress(i / files.length, `${files[i].name} (${i + 1} of ${files.length})`);
-    out.push(...[await fn(files[i], i)].flat());
-  }
-  return out;
-};
 const edit = (fn: (img: ImageData, p: any, ctx: Ctx, f: In) => ImageData | Promise<ImageData>, suffix = ""): Run => (files, p, ctx) => each(files, ctx, async (f) => save(await fn(await load(f, ctx), p, ctx, f), f, p, ctx, suffix));
 
 function anchor(pos: string, W: number, H: number, w: number, h: number, m: number) {

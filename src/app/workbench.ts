@@ -222,7 +222,7 @@ async function showImage(f: In) {
   view.className = "view"; view.replaceChildren(el("p", { textContent: "Opening…" }));
   let t: Out;
   try { [t] = await runTool("thumb", [f], {}, {}); }
-  catch (e) { view.replaceChildren(el("p", { style: "text-align:center;max-width:36ch", textContent: (e as Error).message })); if (!tool.noInput) go.disabled = true; return; }
+  catch (e) { view.replaceChildren(el("p", { style: "text-align:center;max-width:36ch", textContent: (e as Error).message })); if (!tool.noInput && files.length < 2) go.disabled = true; return; }
   if (files[current] !== f) return;
   go.disabled = !ready();
   before = el("canvas"); paint(before, t.bitmap);
@@ -330,6 +330,8 @@ async function run() {
     setProgress(1, "");
     outs = res.map((o) => ({ ...o, url: o.bytes ? URL.createObjectURL(new Blob([o.bytes as BlobPart], { type: o.type })) : o.text != null ? URL.createObjectURL(new Blob([o.text], { type: `${o.type};charset=utf-8` })) : undefined }));
     drawResults(performance.now() - started);
+    const failed = res.flatMap((o) => o.failed ?? []);
+    if (failed.length) setNotice(`${outs.length} of ${outs.length + failed.length} finished. Not processed: ${failed.join("; ")}`);
     say(`Done. ${outs.length} result${outs.length === 1 ? "" : "s"} ready.`);
   } catch (e) {
     if ((e as Error).name === "AbortError") { setNotice("Cancelled. Your files are unchanged."); say("Cancelled"); }

@@ -2,6 +2,12 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- One damaged file no longer loses the rest of a batch. Finished files stay available and failed files are named
+
 ## [0.1.5] - 2026-11-22
 
 ### Security
