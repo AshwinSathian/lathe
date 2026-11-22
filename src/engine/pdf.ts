@@ -407,10 +407,9 @@ function flattenAnnots(doc: PDFDocument) {
     const kept: PDFObject[] = [];
     for (let i = 0; i < annots.size(); i++) {
       const a = annots.lookup(i); if (!(a instanceof PDFDict)) continue;
-      // A flattened field's value must not outlive it, for example through a tagged PDF's structure tree.
-      if (nameOf(a.lookup(PDFName.of("Subtype"))) === "Widget") for (let x: PDFDict | undefined = a, hops = 0; x && hops < 32; x = x.lookup(PDFName.of("Parent")) as PDFDict, hops++) { x.delete(PDFName.of("V")); x.delete(PDFName.of("DV")); }
-      // A dropped annotation can stay reachable, for example from a tagged PDF's structure tree, so it keeps no content.
-      const scrub = () => { for (const k of ["AP", "RV", "V", "DV", "MK", "Contents"]) a.delete(PDFName.of(k)); };
+      // A dropped annotation can stay reachable, for example from a tagged PDF's structure tree. It keeps only its
+      // shape, and losing /Parent leaves the form's field tree unreachable, so saving removes it.
+      const scrub = () => { for (const k of a.keys()) if (!["Type", "Subtype", "Rect", "F"].includes(k.decodeText())) a.delete(k); };
       if (numOf(a, "F") & 0b100010) { scrub(); continue; } // Hidden or NoView
       const keep = () => { if (nameOf(a.lookup(PDFName.of("Subtype"))) !== "Widget") kept.push(annots.get(i)); else scrub(); };
       const shown = a.has(PDFName.of("OC")) ? layerShown(doc, a.get(PDFName.of("OC"))) : true;
@@ -427,8 +426,7 @@ function flattenAnnots(doc: PDFDocument) {
       if (!rect || !bb) { keep(); continue; }
       const b = bb.asRectangle(), sx = b.width ? rect.width / b.width : 1, sy = b.height ? rect.height / b.height : 1, name = page.node.newXObject("Flat", n);
       page.pushOperators(pushGraphicsState(), concatTransformation(sx, 0, 0, sy, rect.x - b.x * sx, rect.y - b.y * sy), PDFOperator.of("Do" as any, [name]), popGraphicsState());
-      // Now part of the page, so the widget itself needs nothing further.
-      if (nameOf(a.lookup(PDFName.of("Subtype"))) === "Widget") scrub();
+      scrub(); // Its appearance is now part of the page.
     }
     if (kept.length) page.node.set(PDFName.of("Annots"), doc.context.obj(kept)); else page.node.delete(PDFName.of("Annots"));
     keptTotal += kept.length;

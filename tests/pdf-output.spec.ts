@@ -139,3 +139,15 @@ test("flatten removes a hidden field's value from the file", async ({ page }) =>
   const out = await PDFDocument.load(bytes);
   for (const [, o] of out.context.enumerateIndirectObjects()) if (o instanceof PDFDict && o.lookup(PDFName.of("Subtype")) === PDFName.of("Widget")) for (const k of ["AP", "V", "DV", "RV", "MK", "Contents"]) expect(o.has(PDFName.of(k)), k).toBe(false);
 });
+
+test("flatten leaves nothing of a form's field tree in a tagged PDF", async ({ page }) => {
+  const d = await PDFDocument.create(), pg = d.addPage([400, 400]), f = d.getForm().createTextField("group.secret"); f.setText("TREEVALUE"); f.addToPage(pg, { x: 40, y: 200, width: 200, height: 30 });
+  const w = f.acroField.getWidgets()[0], parent = f.acroField.dict.lookup(PDFName.of("Parent")) as PDFDict;
+  w.dict.set(PDFName.of("F"), d.context.obj(2)); parent.set(PDFName.of("V"), d.context.obj("PARENTVALUE")); parent.set(PDFName.of("Opt"), d.context.obj(["OPTIONVALUE"])); w.dict.set(PDFName.of("RC"), d.context.obj("RICHVALUE"));
+  d.catalog.set(PDFName.of("StructTreeRoot"), d.context.register(d.context.obj({ Type: "StructTreeRoot", K: d.context.obj({ Type: "OBJR", Obj: d.context.getObjectRef(w.dict) ?? f.acroField.ref }) })));
+  const { bytes } = await run(page, "flatten-pdf", pdf("tree.pdf", Buffer.from(await d.save({ useObjectStreams: false })))), out = await PDFDocument.load(bytes);
+  for (const [, o] of out.context.enumerateIndirectObjects()) {
+    if (!(o instanceof PDFDict)) continue;
+    for (const k of ["FT", "V", "DV", "Opt", "RC", "T", "TU", "Kids"]) if (o.lookup(PDFName.of("Subtype")) === PDFName.of("Widget") || o.has(PDFName.of("FT"))) expect(o.has(PDFName.of(k)), k).toBe(false);
+  }
+});
