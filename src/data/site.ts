@@ -33,14 +33,15 @@ function target(href: string, from: string, ext = "") {
   if (slug) return ext ? `${SITE}/docs/${slug}${ext}${tail}` : `/docs/${slug}${tail}`;
   return `${REPO}/blob/main/${file}${tail}`;
 }
-const idOf = (t: string) => t.toLowerCase().replace(/<[^>]+>/g, "").replace(/&[a-z]+;/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const idOf = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 export function renderDoc(d: DocPage) {
   const toc: { id: string; text: string }[] = [], qa: { q: string; a: string }[] = [], md = readFileSync(d.file, "utf8");
   const parser = new Marked({ gfm: true, renderer: {
     heading({ tokens, depth }) {
-      const html = this.parser.parseInline(tokens), id = idOf(html);
-      if (depth === 2) toc.push({ id, text: html.replace(/<[^>]+>/g, "") });
+      // Plain text comes from the parser's own renderer, so no HTML has to be stripped back out.
+      const html = this.parser.parseInline(tokens), plain = this.parser.parseInline(tokens, this.parser.textRenderer), id = idOf(plain);
+      if (depth === 2) toc.push({ id, text: plain });
       return depth === 1 ? `<h1>${html}</h1>\n` : `<h${depth} id="${id}">${html}</h${depth}>\n`;
     },
     link({ href, tokens }) {

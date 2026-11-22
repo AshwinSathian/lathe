@@ -4,7 +4,7 @@ import { tools } from "../src/data/tools";
 import { docLabels, docPages } from "../src/data/docs";
 
 const conversions = tools.filter((t) => t.run === "convert-image");
-const text = (html: string) => (html.match(/<main[\s\S]*?<\/main>/)?.[0] ?? html).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").toLowerCase();
+const text = (html: string) => (html.match(/<main[\s\S]*?<\/main>/)?.[0] ?? html).replace(/<script\b[\s\S]*?<\/script\b[^>]*>|<style\b[\s\S]*?<\/style\b[^>]*>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").toLowerCase();
 const shingles = (s: string) => { const w = s.split(" "), o = new Set<string>(); for (let i = 0; i + 4 <= w.length; i++) o.add(w.slice(i, i + 4).join(" ")); return o; };
 
 test("every conversion page has its own guidance and links to its neighbours", async ({ request }) => {
@@ -102,7 +102,7 @@ test("every tool has its own social card", async ({ request }) => {
 });
 test("the sitemap lists every page with a last-modified date", async ({ request }) => {
   const map = await (await request.get("/sitemap-0.xml")).text();
-  for (const p of pageList) expect(map, p).toMatch(new RegExp(`<loc>${site}${p === "/" ? "/" : p}</loc><lastmod>20`));
+  for (const p of pageList) expect(map, p).toContain(`<loc>${site}${p}</loc><lastmod>20`);
 });
 
 test("every doc has a sidebar label", () => {
