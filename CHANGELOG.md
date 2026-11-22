@@ -2,6 +2,16 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- The test hook that exposed passwords and output on `window` is gone for normal visitors
+
+### Fixed
+
+- Each release now replaces the engines the service worker cached, and old caches are removed
+
 ## [0.1.4] - 2026-11-22
 
 ### Security
