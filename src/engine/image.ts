@@ -186,7 +186,7 @@ export const imageTools: Record<string, Run> = {
     const boxes = await ctx.main<{ x: number; y: number; w: number; h: number }[]>("faces", { bitmap: input, confidence: p.confidence / 100 }, [input]);
     const grown = boxes.map((b) => ({ x: b.x - b.w * 0.12, y: b.y - b.h * 0.22, w: b.w * 1.24, h: b.h * 1.38 }));
     const out = await save(await hide(img, grown, p.style, p.strength), f, p, ctx, "-faces");
-    return { ...out, note: boxes.length ? `Hid ${boxes.length} face${boxes.length === 1 ? "" : "s"}. Check the result before sharing.` : "No faces found. Try a lower detection confidence." };
+    return { ...out, note: boxes.length ? `Hid ${boxes.length} face${boxes.length === 1 ? "" : "s"}. Check the result before sharing.` : "No faces found. Check the photo yourself before sharing it, or try a lower detection confidence." };
   }),
   "censor-image": edit(async (img, p) => hide(img, (p.regions ?? []).map((r: any) => ({ x: r.x * img.width, y: r.y * img.height, w: r.w * img.width, h: r.h * img.height })), p.style, p.strength), "-hidden"),
 

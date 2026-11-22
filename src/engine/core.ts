@@ -11,12 +11,19 @@ export type Run = (files: In[], p: any, ctx: Ctx) => Promise<Out[]>;
 /** An error whose message is written for the person using the tool. */
 export class Say extends Error {}
 
+/** What decoding a file lost or changed, by file id, for the result to state. */
+export const inputNotes = new Map<string, string>();
+
 /** Runs a tool over each file. One bad file never costs the others their results. */
 export async function eachFile(files: In[], ctx: Ctx, fn: (f: In, i: number) => Promise<Out | Out[]>) {
   const out: Out[] = [], failed: string[] = [];
   for (let i = 0; i < files.length; i++) {
     if (files.length > 1) ctx.progress(i / files.length, `${files[i].name} (${i + 1} of ${files.length})`);
-    try { out.push(...[await fn(files[i], i)].flat()); }
+    try {
+      const made = [await fn(files[i], i)].flat(), said = inputNotes.get(files[i].id);
+      if (said && !ctx.preview) for (const o of made) o.note = [o.note, said].filter(Boolean).join(" ");
+      out.push(...made);
+    }
     catch (e) {
       if (files.length === 1) throw e;
       failed.push(`${files[i].name} (${e instanceof Say ? e.message : "could not be processed"})`);

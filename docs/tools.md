@@ -67,7 +67,7 @@ Generated from [`src/data/tools.ts`](../src/data/tools.ts) by `npm run docs`.
 |---|---|---|
 | [Remove image metadata](https://lathe.ashwinsathian.com/remove-metadata) | Strip GPS location, camera details and timestamps before you share a photo. | exifr, WebAssembly codecs |
 | [Image metadata viewer](https://lathe.ashwinsathian.com/view-metadata) | See the EXIF, GPS, XMP and IPTC data hiding inside a photo. | exifr |
-| [Blur faces](https://lathe.ashwinsathian.com/blur-faces) | Find every face in a photo and blur or block it on your device. | MediaPipe, WebAssembly |
+| [Blur faces](https://lathe.ashwinsathian.com/blur-faces) | Find faces in a photo and block or blur them on your device. Check the result, because a detector can miss a face. | MediaPipe, WebAssembly |
 | [Pixelate image](https://lathe.ashwinsathian.com/censor-image) | Hide a region of an image behind pixels, blur or a solid block. | Canvas |
 
 ### Create

@@ -1,6 +1,6 @@
 {
   "name": "lathe",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "Image and PDF tools that run entirely in your browser. HEIC, AVIF, redaction, encryption, OCR and on-device AI, with no uploads.",
   "license": "MIT",

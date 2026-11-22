@@ -2,7 +2,7 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.8] - 2026-11-22
 
 ### Fixed
 
@@ -10,6 +10,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) an
 - Markdown to PDF draws strikethrough, wraps table cells and long words, and keeps raw HTML, task boxes, list numbering and footnotes
 - OCR PDF keeps accented letters, the euro sign and curly quotes, and names any character it cannot make searchable
 - Fill PDF names the field and characters it cannot show
+- iPhone Display P3 photos convert to correct sRGB colours
+- HEIC files with several images use the primary image
+- Conversion states when it drops animation, extra pages or 10- and 16-bit depth
+- Oversized images are refused before decoding, with a useful message
+- Blur faces starts on the safer solid block and asks you to check the result
 
 ## [0.1.7] - 2026-11-22
 
@@ -136,6 +141,7 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[0.1.8]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.8
 [0.1.7]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.7
 [0.1.6]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.6
 [0.1.5]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.5
