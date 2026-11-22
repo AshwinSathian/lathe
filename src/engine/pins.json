@@ -1,0 +1,67 @@
+{
+ "revisions": {
+  "jiabins0303/birefnet-lite-1024-webgpu": "1ad01cef0f4101a285c5a3e0bd7f15597d93403f",
+  "Xenova/modnet": "fa2fa546052fba4c08921230a26cc69a333fca12",
+  "Xenova/swin2SR-classical-sr-x2-64": "71e28a83cfb61f5dc95bafdeebf2815167914f2b"
+ },
+ "files": {
+  "jiabins0303/birefnet-lite-1024-webgpu/onnx/model_fp16.onnx": {
+   "sha256": "4059896039dfccb0f15b9080ff06d11d90e499449bb045e797055eb8901cf5f4",
+   "size": 114834127
+  },
+  "jiabins0303/birefnet-lite-1024-webgpu/config.json": {
+   "sha256": "50acd2d700ee3d5facdcf3aab2312bb586372726dce8bdd5741bdae0ca6eb84f",
+   "size": 81
+  },
+  "jiabins0303/birefnet-lite-1024-webgpu/preprocessor_config.json": {
+   "sha256": "447d9ccb2c4129ab0ca045fc293e7d79dbc45e293ac1e94818d865db77f65a54",
+   "size": 391
+  },
+  "Xenova/modnet/onnx/model_quantized.onnx": {
+   "sha256": "92e49898c3e05a6d7a944fc67a8cb87c4aad754ffb6ebd949528c7d1105fee3a",
+   "size": 6632188
+  },
+  "Xenova/modnet/config.json": {
+   "sha256": "e144d8af9b1f09649785c77f592a76bbc69504ae02e43700663b2a9f00d9c8a2",
+   "size": 83
+  },
+  "Xenova/modnet/preprocessor_config.json": {
+   "sha256": "07d83634b1fdd20142ca6e3fe55ab92b558f56d1b0f005ff3a7926f1c9e1165d",
+   "size": 365
+  },
+  "Xenova/swin2SR-classical-sr-x2-64/onnx/model.onnx": {
+   "sha256": "6dde3fe2440543ccae7c40d175609f83c18aeaa3d8456745c4329ef97ae744bd",
+   "size": 54428699
+  },
+  "Xenova/swin2SR-classical-sr-x2-64/onnx/model_quantized.onnx": {
+   "sha256": "83cff83efba9df253c5d11cda5b944d0ce4d4ef595d2669dc268421519fe34ec",
+   "size": 21471413
+  },
+  "Xenova/swin2SR-classical-sr-x2-64/config.json": {
+   "sha256": "e9ff87b27272c528232332f9c9d454d899940def893d3b53e3b76ef0b486a59f",
+   "size": 825
+  },
+  "Xenova/swin2SR-classical-sr-x2-64/preprocessor_config.json": {
+   "sha256": "cbc36266fcc93d5bc1e9ca69bcc648ae9d268918ad14cd3507216740f129cc4d",
+   "size": 152
+  }
+ },
+ "ortWasm": "sha256-SYcfWkQJUZeX4SdECGim0ZIzOdkYWQfzAaWyodkK8II=",
+ "tessdata": {
+  "eng": "45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91",
+  "spa": "40be52f97b5d4eb7460073dc1f94cd546b27150333c0bf854ed7e7132db6bceb",
+  "fra": "d611139672b3752c7097e671e4a1d9209dfd37f2aeb081ef6487fba3351e9255",
+  "deu": "306c4280d0cbed46fbff727486bd43b92730181bae80f56941a091f363bdf28b",
+  "ita": "f702fcfad297ce028ede3626d1467b67939f23ff23595f9badd54681cf25a4d3",
+  "por": "dacebc1386ddaaf8389f81094236cca0d690897cde693d48cbdaa881c86e2b4c",
+  "nld": "a2d904b6ddc4feb0d31ecfcd7361a554102e7aa2e278c54f4fc029e0d0815571",
+  "hin": "f3b6a0d320df38d886178cdd727b90dbf9df3db053adb32bd9cf73f0463cda07",
+  "mal": "a4a5b24474889dbbe9943bb3cb7b24819c1cd594f2f371340bba83c30fd81bf0",
+  "tam": "2c4b255ede87931cb56c20a5b2b8e2cda4913e34fb3e4957f9b9e04ea069ff21",
+  "ara": "f4746c44b02342dd5b3d4f0198000f47d7c49f1a229e63e0f436c0592dcd9639",
+  "rus": "f51f5edc992249ff9b70a227b22f242dfa47b2b1bbc7ae0ea74908640c101f6a",
+  "jpn": "2b63ebfbf1484de4a08ce53b29ef98a1c17658a93cbd38acb665d7d316d0be88",
+  "kor": "78c21276ab14c9bb734d83be1055d9fe5469a4e7e977c51ad385be5737e61126",
+  "chi_sim": "b8a23f10c7de500891eb458a8adc9cc58ab7f242f08b7d149f5e9aea4ad5db7c"
+ }
+}

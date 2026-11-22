@@ -16,7 +16,7 @@ flowchart LR
     Main --> PJ
     Main --> T
   end
-  CDN["jsDelivr, Hugging Face<br/>(model downloads only)"] -. "download after consent" .-> Tab
+  CDN["jsDelivr, Hugging Face<br/>(two model tools only)"] -. "download after consent" .-> Main
 ```
 
 ## The registry
@@ -55,4 +55,4 @@ Shipping an HEVC encoder would bring in x265's GPL licence and HEVC patent quest
 | Background removal | BiRefNet Lite, 1024 px, 115 MB | MODNet, 7 MB, built for portraits |
 | Upscaling | Swin2SR x2, 54 MB | Swin2SR x2 quantised, 22 MB |
 
-Hugging Face models are pinned to a commit in [`src/engine/ai.ts`](../src/engine/ai.ts). The ONNX Runtime binary is 26 MB, over Cloudflare's 25 MiB limit per file, so it loads from jsDelivr at the version in `package-lock.json`. Its small loader is served from this site, because a cross-origin loader would need a `blob:` script that the CSP forbids.
+Every model file is pinned to a commit and a SHA-256 in [`src/engine/pins.json`](../src/engine/pins.json). The page fetches it and the engine worker verifies it, because the worker holds your files and its CSP allows no third-party host. Cached copies are verified on every read. The ONNX Runtime binary is 26 MB, over Cloudflare's 25 MiB limit per file, so it loads from jsDelivr with a subresource integrity check. Its small loader and all OCR language data are served from this site.

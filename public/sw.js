@@ -4,7 +4,8 @@ const CACHE = "lathe-dev";
 self.addEventListener("install", (e) => e.waitUntil(self.skipWaiting()));
 // The previous release's cache stays, so a tab left open can still load its own chunks.
 self.addEventListener("activate", (e) => e.waitUntil(caches.keys().then((k) => {
-  const old = k.filter((x) => x !== CACHE), keep = old.at(-1);
+  // Downloaded models live in their own cache and survive releases.
+  const old = k.filter((x) => x.startsWith("lathe-") && x !== CACHE && x !== "lathe-models"), keep = old.at(-1);
   return Promise.all([...old.filter((x) => x !== keep).map((x) => caches.delete(x)), keep && pruneToChunks(keep)]);
 }).then(() => self.clients.claim())));
 // An old page carries its old CSP, and old engines may have known bugs, so only hashed chunks survive a release.

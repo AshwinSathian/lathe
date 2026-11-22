@@ -43,6 +43,5 @@ Everything except these downloads is served from your host:
 | Feature | Downloads from |
 |---|---|
 | Background removal, upscaling | `huggingface.co`, and `cdn.jsdelivr.net` for ONNX Runtime |
-| OCR language data | `cdn.jsdelivr.net` |
 
-To block them, remove those hosts from the CSP. The AI tools other than face blur will then show an error, and all other tools keep working.
+To block them, remove those hosts from the two model routes in the CSP. Remove background and Upscale image will then show an error, and all other tools keep working, including OCR and face blur.

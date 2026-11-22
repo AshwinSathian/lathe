@@ -4,7 +4,7 @@ export interface Out { name: string; type: string; bytes?: Uint8Array; text?: st
 export interface Ctx {
   preview: boolean;
   progress(p: number, label?: string): void;
-  main<T = any>(op: string, args: any, transfer?: Transferable[]): Promise<T>;
+  main<T = any>(op: string, args: any, transfer?: Transferable[], onProgress?: (got: number, total: number) => void): Promise<T>;
 }
 export type Run = (files: In[], p: any, ctx: Ctx) => Promise<Out[]>;
 

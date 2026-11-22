@@ -343,7 +343,8 @@ async function signSetup(f: In) {
 const NEXT: Record<string, string[]> = { "application/pdf": ["compress-pdf", "protect-pdf", "sign-pdf", "page-numbers", "organize-pdf"], image: ["compress-image", "resize-image", "remove-metadata", "images-to-pdf"] };
 async function run() {
   if (busy) return;
-  if (tool.model && !consented) { consented = true; try { localStorage.setItem(`lathe:model:${tool.model.name}`, "1"); } catch { /* Ask again next time. */ } consent.hidden = true; go.textContent = tool.name; }
+  const asked = tool.model && !consented;
+  if (asked) { consented = true; consent.hidden = true; go.textContent = tool.name; }
   resetOutput(); busy = true; changedDuringRun = false; go.disabled = true; clearMsg(); setNotice(""); prog.classList.add("on"); setProgress(0.02, "Working…"); say("Working");
   const started = performance.now();
   try {
@@ -351,11 +352,14 @@ async function run() {
     const res = await runTool(engineId, input, { ...params }, { onProgress: setProgress });
     setProgress(1, "");
     outs = res.map((o) => ({ ...o, url: o.bytes ? URL.createObjectURL(new Blob([o.bytes as BlobPart], { type: o.type })) : o.text != null ? URL.createObjectURL(new Blob([o.text], { type: `${o.type};charset=utf-8` })) : undefined }));
+    // Remembered only once the model has really loaded, so a failed download asks again.
+    if (asked) try { localStorage.setItem(`lathe:model:${tool.model.name}`, "1"); } catch { /* Ask again next time. */ }
     drawResults(performance.now() - started);
     const failed = res.flatMap((o) => o.failed ?? []);
     if (failed.length) setNotice(`${outs.length} of ${outs.length + failed.length} finished. Not processed: ${failed.join("; ")}`);
     say(`Done. ${outs.length} result${outs.length === 1 ? "" : "s"} ready.`);
   } catch (e) {
+    if (asked) { consented = false; consent.hidden = false; go.textContent = "Download model and run"; }
     if ((e as Error).name === "AbortError") { setNotice("Cancelled. Your files are unchanged."); say("Cancelled"); }
     else showError((e as Error).message);
   }

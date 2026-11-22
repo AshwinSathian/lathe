@@ -1,23 +1,56 @@
 import { pipeline, env, RawImage } from "@huggingface/transformers";
-import type { Ctx } from "./core";
+import { Say, type Ctx } from "./core";
+import pins from "./pins.json";
 
 env.allowLocalModels = false;
 // The runtime's loader is served from this site because a cross-origin copy would need a blob: URL, which the CSP forbids.
-// Its 26 MB binary exceeds the host's file limit, so that one file comes from a CDN, pinned to the installed version.
+// Its 26 MB binary exceeds the host's file limit, so that one file comes from a CDN and is checked against a pinned hash.
 env.useWasmCache = false;
-env.backends.onnx.wasm.wasmPaths = {
-  mjs: new URL("/vendor/ort/ort-wasm-simd-threaded.asyncify.mjs", self.location.origin).href,
-  wasm: `https://cdn.jsdelivr.net/npm/onnxruntime-web@${env.backends.onnx.versions?.web}/dist/ort-wasm-simd-threaded.asyncify.wasm`,
-};
+const ORT_WASM = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${env.backends.onnx.versions?.web}/dist/ort-wasm-simd-threaded.asyncify.wasm`;
+env.backends.onnx.wasm.wasmPaths = { mjs: new URL("/vendor/ort/ort-wasm-simd-threaded.asyncify.mjs", self.location.origin).href, wasm: ORT_WASM };
 
-// Pinned, so a change upstream cannot alter what runs on someone's device.
-const REVISION: Record<string, string> = {"jiabins0303/birefnet-lite-1024-webgpu": "1ad01cef0f4101a285c5a3e0bd7f15597d93403f", "Xenova/modnet": "fa2fa546052fba4c08921230a26cc69a333fca12", "Xenova/swin2SR-classical-sr-x2-64": "71e28a83cfb61f5dc95bafdeebf2815167914f2b"};
+const hex = async (b: ArrayBuffer) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", b))].map((x) => x.toString(16).padStart(2, "0")).join("");
+/** The exact commit and hash for a model file, whichever branch the loader asked for. Anything unlisted is not fetched. */
+function pinned(url: string) {
+  const m = url.match(/^https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/resolve\/[^/]+\/([^?]+)/);
+  const pin = m && (pins.files as Record<string, { sha256: string; size: number }>)[`${m[1]}/${m[2]}`];
+  return pin ? { ...pin, url: `https://huggingface.co/${m[1]}/resolve/${(pins.revisions as Record<string, string>)[m[1]]}/${m[2]}` } : null;
+}
+let active: Ctx;
+env.fetch = async (input: string | URL, init?: RequestInit) => {
+  const pin = pinned(String(input));
+  if (!pin) return new Response(null, { status: 404 });
+  // The loader asks for one byte to learn a file's size, which the pin already records.
+  if (new Headers(init?.headers).has("Range")) return new Response(new Uint8Array(1), { status: 206, headers: { "content-length": "1", "content-range": `bytes 0-0/${pin.size}` } });
+  const bytes = await active.main<ArrayBuffer>("fetchPinned", { url: pin.url }, [], (got, total) => active.progress(total ? (got / total) * 0.9 : 0, `Downloading model, ${(got / 1e6).toFixed(0)} of ${((total || pin.size) / 1e6).toFixed(0)} MB`));
+  if ((await hex(bytes)) !== pin.sha256) throw new Say("A model file failed its integrity check, so it was not used. Try again later.");
+  return new Response(bytes, { status: 200, headers: { "content-length": String(bytes.byteLength) } });
+};
+// Cached files are checked on every read, so a changed cache entry is discarded instead of run.
+env.useBrowserCache = false;
+env.useCustomCache = true;
+env.customCache = {
+  async match(key: string) {
+    const pin = pinned(String(key));
+    if (!pin) return undefined;
+    const c = await caches.open("lathe-models"), hit = await c.match(pin.url);
+    if (!hit) return undefined;
+    if ((await hex(await hit.clone().arrayBuffer())) === pin.sha256) return hit;
+    await c.delete(pin.url);
+    return undefined;
+  },
+  async put(key: string, res: Response) { const pin = pinned(String(key)); if (pin) await (await caches.open("lathe-models")).put(pin.url, res); },
+} as any;
+let runtime: Promise<void>;
+const loadRuntime = (ctx: Ctx) => (runtime ??= ctx.main<ArrayBuffer>("fetchPinned", { url: ORT_WASM, integrity: pins.ortWasm }).then((b) => { (env.backends.onnx.wasm as any).wasmBinary = b; }).catch((e) => { runtime = undefined; throw new Say(`The AI runtime could not be downloaded and verified. ${(e as Error).message}`); }));
+
 const CUTOUT_GPU = "jiabins0303/birefnet-lite-1024-webgpu", CUTOUT_CPU = "Xenova/modnet", UPSCALE = "Xenova/swin2SR-classical-sr-x2-64";
 
 const hasGPU = async () => { try { return !!(await (navigator as any).gpu?.requestAdapter()); } catch { return false; } };
 const loaded = new Map<string, Promise<any>>();
 
 function load(task: any, model: string, gpu: string, cpu: string, ctx: Ctx, forceCpu = false): Promise<{ pipe: any; device: string }> {
+  active = ctx;
   const key = `${task}:${model}:${forceCpu}`;
   if (!loaded.has(key)) {
     const seen = new Map<string, [number, number]>();
@@ -29,11 +62,12 @@ function load(task: any, model: string, gpu: string, cpu: string, ctx: Ctx, forc
       ctx.progress(z ? (a / z) * 0.9 : 0, `Downloading model, ${(a / 1e6).toFixed(0)} of ${(z / 1e6).toFixed(0)} MB`);
     };
     loaded.set(key, (async () => {
+      await loadRuntime(ctx);
       if (!forceCpu && await hasGPU()) {
-        try { return { pipe: await pipeline(task, model, { device: "webgpu", dtype: gpu as any, revision: REVISION[model], progress_callback }), device: "webgpu" }; }
+        try { return { pipe: await pipeline(task, model, { device: "webgpu", dtype: gpu as any, revision: (pins.revisions as Record<string, string>)[model], progress_callback }), device: "webgpu" }; }
         catch (e) { console.warn("WebGPU failed, using WebAssembly", e); }
       }
-      return { pipe: await pipeline(task, model, { device: "wasm", dtype: cpu as any, revision: REVISION[model], progress_callback }), device: "wasm" };
+      return { pipe: await pipeline(task, model, { device: "wasm", dtype: cpu as any, revision: (pins.revisions as Record<string, string>)[model], progress_callback }), device: "wasm" };
     })().catch((e) => { loaded.delete(key); throw e; }));
   }
   return loaded.get(key);

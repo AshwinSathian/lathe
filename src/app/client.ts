@@ -11,8 +11,8 @@ function engine() {
   w.onmessage = async ({ data: m }) => {
     if (m.t === "call") {
       try {
-        const result = await OPS[m.op](m.args);
-        const transfer = result instanceof ImageBitmap ? [result] : Array.isArray(result) && result[0] instanceof ImageBitmap ? result : [];
+        const result = await OPS[m.op](m.args, (got: number, total: number) => w.postMessage({ t: "callProgress", id: m.id, got, total }));
+        const transfer = result instanceof ImageBitmap || result instanceof ArrayBuffer ? [result] : Array.isArray(result) && result[0] instanceof ImageBitmap ? result : [];
         w.postMessage({ t: "reply", id: m.id, result }, { transfer });
       } catch (e) { w.postMessage({ t: "reply", id: m.id, error: (e as Error).message }); }
       return;
@@ -99,7 +99,7 @@ async function detectFaces({ bitmap, confidence }: { bitmap: ImageBitmap; confid
 
 const ocrWorkers = new Map<string, Promise<any>>();
 async function ocr({ bitmap, lang }: { bitmap: ImageBitmap; lang: string }) {
-  if (!ocrWorkers.has(lang)) ocrWorkers.set(lang, import("tesseract.js").then(({ createWorker }) => createWorker(lang, 1, { workerPath: "/vendor/tesseract/worker.min.js", corePath: "/vendor/tesseract/", workerBlobURL: false })));
+  if (!ocrWorkers.has(lang)) ocrWorkers.set(lang, import("tesseract.js").then(({ createWorker }) => createWorker(lang, 1, { workerPath: "/vendor/tesseract/worker.min.js", corePath: "/vendor/tesseract/", langPath: "/vendor/tessdata", cacheMethod: "none", workerBlobURL: false })));
   const w = await ocrWorkers.get(lang), c = document.createElement("canvas");
   c.width = bitmap.width; c.height = bitmap.height; c.getContext("2d").drawImage(bitmap, 0, 0); bitmap.close();
   const { data } = await w.recognize(c, {}, { text: true, blocks: true });
@@ -122,7 +122,20 @@ async function rasterSvg({ text }: { text: string }) {
   try { img.src = url; await img.decode(); return await createImageBitmap(img, { resizeWidth: Math.round(w * k), resizeHeight: Math.round(h * k) }); } finally { URL.revokeObjectURL(url); }
 }
 
-const OPS: Record<string, (a: any) => Promise<any>> = {
+// The engine worker holds your files and has no third-party network access. Only the page on a model tool can fetch,
+// and only these two hosts. The worker checks every file's SHA-256 before using it.
+async function fetchPinned({ url, integrity }: { url: string; integrity?: string }, progress: (got: number, total: number) => void) {
+  if (!/^https:\/\/(huggingface\.co|cdn\.jsdelivr\.net)\//.test(url)) throw new Error("Blocked a download from an unexpected address.");
+  const r = await fetch(url, integrity ? { integrity } : {});
+  if (!r.ok) throw new Error(`Model download failed (${r.status}).`);
+  const total = +(r.headers.get("content-length") ?? 0), reader = r.body.getReader(), parts: Uint8Array[] = []; let got = 0;
+  for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); got += value.length; progress(got, total); }
+  const out = new Uint8Array(got); let at = 0;
+  for (const x of parts) { out.set(x, at); at += x.length; }
+  return out.buffer;
+}
+const OPS: Record<string, (a: any, progress?: (got: number, total: number) => void) => Promise<any>> = {
+  fetchPinned,
   pageCount: async ({ doc, key }) => (await openPdf(key, doc)).numPages,
   async render({ doc, key, page, dpi, gray }) { const d = await openPdf(key, doc), c = await renderPage(d, page, dpi / 72, gray); return createImageBitmap(c); },
   async text({ doc, key, page }) {

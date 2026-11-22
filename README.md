@@ -67,7 +67,7 @@ Most free PDF and image sites work by uploading your passport scan, contract or 
 - Without WebGPU, background removal uses a smaller model built for portraits.
 - Sign PDF adds a visual signature, not a certificate-based one.
 - PDF to Word and Excel are left out, because client-side results are poor.
-- AI models come from Hugging Face and jsDelivr. Those services see the download request and nothing from your files.
+- Remove background and Upscale image download their model from Hugging Face and jsDelivr, checked against pinned hashes. Those services see the download request and nothing from your files. OCR and face blur use files served by this site.
 
 [Browser support](docs/browser-support.md) lists what has been tested where.
 

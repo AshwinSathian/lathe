@@ -2,6 +2,19 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Security
+
+- Scripts can no longer load from any CDN, and only Remove background and Upscale image can reach a third-party host
+- The worker that holds your files has no third-party network access
+- Every model file, the ONNX runtime and OCR data are checked against a pinned SHA-256, including cached copies
+- OCR language data is now served by this site
+
+### Fixed
+
+- A failed model download asks for consent again
+
 ## [0.1.6] - 2026-11-22
 
 ### Security

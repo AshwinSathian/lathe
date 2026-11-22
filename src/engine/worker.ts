@@ -1,10 +1,10 @@
 import { Say, type Ctx, type In, type Run } from "./core";
 
-const pending = new Map<number, { res: (v: any) => void; rej: (e: Error) => void }>();
+const pending = new Map<number, { res: (v: any) => void; rej: (e: Error) => void; onProgress?: (got: number, total: number) => void }>();
 let nextCall = 1;
-const main = (job: number) => <T>(op: string, args: any, transfer: Transferable[] = []) => new Promise<T>((res, rej) => {
+const main = (job: number) => <T>(op: string, args: any, transfer: Transferable[] = [], onProgress?: (got: number, total: number) => void) => new Promise<T>((res, rej) => {
   const id = nextCall++;
-  pending.set(id, { res, rej });
+  pending.set(id, { res, rej, onProgress });
   postMessage({ t: "call", job, id, op, args }, { transfer });
 });
 
@@ -16,6 +16,7 @@ async function engine(id: string): Promise<Run> {
 }
 
 self.onmessage = async ({ data: m }) => {
+  if (m.t === "callProgress") { pending.get(m.id)?.onProgress?.(m.got, m.total); return; }
   if (m.t === "reply") {
     const c = pending.get(m.id); pending.delete(m.id);
     if (m.error) c?.rej(new Say(m.error)); else c?.res(m.result);
