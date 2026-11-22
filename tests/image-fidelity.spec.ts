@@ -46,7 +46,8 @@ test("a HEIC with a malformed colour profile cannot hang the tool", async ({ pag
   await page.locator("#stage input[type=file]").first().setInputFiles({ name: "bad.heic", mimeType: "image/heic", buffer: heic });
   const go = page.locator("#panel > .btn").first(); await expect(go).toBeEnabled({ timeout: 15_000 }); await go.click();
   await expect(page.locator("#panel .results a[download]").first()).toBeVisible({ timeout: 15_000 });
-  await expect(page.locator("#panel .results small").first()).toContainText("colour format");
+  // The real tags are still inside the profile, so a bounded walk finds them and converts correctly.
+  await expect(page.locator("#panel .results small").first()).toContainText("sRGB");
 });
 test("face blur starts on the solid block and asks for review when it finds nothing", async ({ page }) => {
   await page.goto("/blur-faces");
