@@ -2,6 +2,15 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Markdown to PDF refuses characters its fonts cannot show and names them, instead of printing `?`
+- Markdown to PDF draws strikethrough, wraps table cells and long words, and keeps raw HTML, task boxes, list numbering and footnotes
+- OCR PDF keeps accented letters, the euro sign and curly quotes, and names any character it cannot make searchable
+- Fill PDF names the field and characters it cannot show
+
 ## [0.1.7] - 2026-11-22
 
 ### Security

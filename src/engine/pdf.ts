@@ -457,6 +457,10 @@ function collectGarbage(doc: PDFDocument) {
   for (const [ref] of doc.context.enumerateIndirectObjects()) if (!live.has(ref)) doc.context.delete(ref);
 }
 
+/** Characters a standard PDF font cannot encode, without repeats. */
+const unsupported = (font: PDFFont, text: string) => [...new Set([...text.normalize("NFC")])].filter((ch) => ch >= " " && !winAnsi(ch, font));
+const listChars = (chars: string[]) => `${chars.slice(0, 10).join(" ")}${chars.length > 10 ? ` and ${chars.length - 10} more` : ""}`;
+
 async function markdownPdf(md: string, p: any) {
   const { marked } = await import("marked");
   const doc = await PDFDocument.create(), [PW, PH] = SIZES[p.size], M = 64, W = PW - 2 * M;
@@ -465,22 +469,31 @@ async function markdownPdf(md: string, p: any) {
     r: await doc.embedFont(serif ? StandardFonts.TimesRoman : StandardFonts.Helvetica), b: await doc.embedFont(serif ? StandardFonts.TimesRomanBold : StandardFonts.HelveticaBold),
     i: await doc.embedFont(serif ? StandardFonts.TimesRomanItalic : StandardFonts.HelveticaOblique), c: await doc.embedFont(StandardFonts.Courier),
   };
+  const missing = unsupported(F.r, md.replace(/\u2192/g, "->"));
+  if (missing.length) throw new Say(`The PDF fonts here cannot show these characters, so no file was made: ${listChars(missing)}`);
   let page = doc.addPage([PW, PH]), y = PH - M;
   const entities: Record<string, string> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
-  const clean = (t: string) => t.replace(/&(?:amp|lt|gt|quot|#39);/g, (m) => entities[m]).replace(/\t/g, "  ").replace(/\u2192/g, "->").replace(/[^\x20-\x7e\xa0-\xff\u2013\u2014\u2018\u2019\u201c\u201d\u2022\u2026\u20ac]/g, "?");
+  const clean = (t: string) => t.replace(/&(?:amp|lt|gt|quot|#39);/g, (m) => entities[m]).replace(/\t/g, "  ").replace(/\u2192/g, "->").normalize("NFC");
   const need = (h: number) => { if (y - h < M) { page = doc.addPage([PW, PH]); y = PH - M; } };
-  type Run = { t: string; f: PDFFont; c?: boolean; href?: string };
-  const runs = (toks: any[], f: PDFFont = F.r, href?: string): Run[] => (toks ?? []).flatMap((x) => {
-    if (x.type === "strong") return runs(x.tokens, F.b, href);
-    if (x.type === "em") return runs(x.tokens, F.i, href);
-    if (x.type === "codespan") return [{ t: clean(x.text), f: F.c, c: true, href }];
-    if (x.type === "link") return runs(x.tokens, f, x.href);
+  type Run = { t: string; f: PDFFont; c?: boolean; href?: string; del?: boolean };
+  const runs = (toks: any[], f: PDFFont = F.r, href?: string, del = false): Run[] => (toks ?? []).flatMap((x) => {
+    if (x.type === "strong") return runs(x.tokens, F.b, href, del);
+    if (x.type === "em") return runs(x.tokens, F.i, href, del);
+    if (x.type === "del") return runs(x.tokens, f, href, true);
+    if (x.type === "codespan") return [{ t: clean(x.text), f: F.c, c: true, href, del }];
+    if (x.type === "link") return runs(x.tokens, f, x.href, del);
     if (x.type === "br") return [{ t: "\n", f }];
-    if (x.tokens) return runs(x.tokens, f, href);
-    return [{ t: clean(x.text ?? x.raw ?? ""), f, href }];
+    if (x.tokens) return runs(x.tokens, f, href, del);
+    return [{ t: clean(x.text ?? x.raw ?? ""), f, href, del }];
   });
+  /** Splits a word wider than the column, so nothing runs off the page. */
+  const fit = (t: string, f: PDFFont, size: number, width: number) => {
+    const parts: string[] = []; let cur = "";
+    for (const ch of t) { if (cur && f.widthOfTextAtSize(cur + ch, size) > width) { parts.push(cur); cur = ""; } cur += ch; }
+    return cur ? [...parts, cur] : parts;
+  };
   const flow = (rs: Run[], size: number, x0: number, width: number, lead: number) => {
-    const words = rs.flatMap((r) => r.t.split(/(\s+)/).filter((w) => w !== "").map((w) => ({ ...r, t: w })));
+    const words = rs.flatMap((r) => r.t.split(/(\s+)/).filter((w) => w !== "").flatMap((w) => (/^\s+$/.test(w) ? [w] : fit(w, r.f, r.c ? size * 0.88 : size, width)).map((t) => ({ ...r, t }))));
     let line: typeof words = [], lw = 0;
     const flush = () => {
       while (line.length && /^\s+$/.test(line[line.length - 1].t)) line.pop();
@@ -488,6 +501,7 @@ async function markdownPdf(md: string, p: any) {
       for (const w of line) {
         const s = w.c ? size * 0.88 : size, tw = w.f.widthOfTextAtSize(w.t, s);
         if (!/^\s+$/.test(w.t)) page.drawText(w.t, { x, y: y - size, size: s, font: w.f, color: w.href ? rgb(0.75, 0.25, 0.05) : rgb(0.1, 0.09, 0.08) });
+        if (w.del && !/^\s+$/.test(w.t)) page.drawLine({ start: { x, y: y - size * 0.68 }, end: { x: x + tw, y: y - size * 0.68 }, thickness: Math.max(0.6, size / 16), color: rgb(0.1, 0.09, 0.08) });
         const uri = w.href && !/^\s+$/.test(w.t) ? safeUri(w.href) : null;
         if (uri) {
           const link = doc.context.register(doc.context.obj({ Type: "Annot", Subtype: "Link", Rect: [x, y - size - 2, x + tw, y], Border: [0, 0, 0], A: { Type: "Action", S: "URI", URI: uri } }));
@@ -510,7 +524,14 @@ async function markdownPdf(md: string, p: any) {
       if (t.type === "heading") { const s = [0, 24, 18, 15, 13, 12, 11][t.depth]; y -= s * 0.7; need(s * 2.2); flow(runs(t.tokens, F.b), s, x0, width, s * 1.25); y -= s * 0.3; }
       else if (t.type === "paragraph" || t.type === "text") { flow(runs(t.tokens ?? [{ text: t.text }]), 11, x0, width, 15.5); if (t.type === "paragraph") y -= 7; }
       else if (t.type === "list") {
-        t.items.forEach((it: any, i: number) => { need(16); page.drawText(t.ordered ? `${(t.start || 1) + i}.` : "•", { x: x0 + 2, y: y - 11, size: 11, font: F.r, color: rgb(0.1, 0.09, 0.08) }); block(it.tokens, x0 + 18, width - 18); });
+        const first = t.start === "" || t.start == null ? 1 : +t.start;
+        t.items.forEach((it: any, i: number) => {
+          need(16); page.drawText(t.ordered ? `${first + i}.` : "•", { x: x0 + 2, y: y - 11, size: 11, font: F.r, color: rgb(0.1, 0.09, 0.08) });
+          // A checked box changes what an item means, so its state is printed.
+          const box = it.task ? (it.checked ? "[x] " : "[ ] ") : "", shift = box ? F.c.widthOfTextAtSize(box, 10) : 0;
+          if (box) page.drawText(box, { x: x0 + 18, y: y - 11, size: 10, font: F.c, color: rgb(0.1, 0.09, 0.08) });
+          block(it.tokens, x0 + 18 + shift, width - 18 - shift);
+        });
         y -= 6;
       } else if (t.type === "blockquote") {
         const start = y, first = page; block(t.tokens, x0 + 14, width - 14);
@@ -521,14 +542,23 @@ async function markdownPdf(md: string, p: any) {
         y -= 9;
       } else if (t.type === "hr") { need(16); page.drawLine({ start: { x: x0, y: y - 8 }, end: { x: x0 + width, y: y - 8 }, thickness: 0.6, color: rgb(0.8, 0.77, 0.7) }); y -= 18; }
       else if (t.type === "table") {
-        const cols = t.header.length, cw = width / cols;
+        const cols = t.header.length, cw = width / cols, LEAD = 12;
+        const wrap = (text: string, f: PDFFont) => {
+          const lines: string[] = []; let cur = "";
+          for (const word of clean(text).split(/\s+/).filter(Boolean).flatMap((x) => fit(x, f, 9.5, cw - 6))) {
+            const next = cur ? `${cur} ${word}` : word;
+            if (f.widthOfTextAtSize(next, 9.5) > cw - 6) { lines.push(cur); cur = word; } else cur = next;
+          }
+          return cur ? [...lines, cur] : lines;
+        };
         for (const row of [t.header, ...t.rows]) {
-          need(18); const isHead = row === t.header;
-          row.forEach((cell: any, i: number) => { let s = clean(cell.text); const f = isHead ? F.b : F.r; while (s && f.widthOfTextAtSize(s, 9.5) > cw - 6) s = s.slice(0, -1); page.drawText(s, { x: x0 + i * cw + 3, y: y - 12, size: 9.5, font: f, color: rgb(0.1, 0.09, 0.08) }); });
-          page.drawLine({ start: { x: x0, y: y - 17 }, end: { x: x0 + width, y: y - 17 }, thickness: 0.4, color: rgb(0.85, 0.82, 0.76) }); y -= 18;
+          const f = row === t.header ? F.b : F.r, cells = row.map((cell: any) => wrap(cell.text, f)), h = Math.max(1, ...cells.map((c: string[]) => c.length)) * LEAD + 6;
+          need(h);
+          cells.forEach((lines: string[], i: number) => lines.forEach((l, k) => page.drawText(l, { x: x0 + i * cw + 3, y: y - 12 - k * LEAD, size: 9.5, font: f, color: rgb(0.1, 0.09, 0.08) })));
+          page.drawLine({ start: { x: x0, y: y - h + 1 }, end: { x: x0 + width, y: y - h + 1 }, thickness: 0.4, color: rgb(0.85, 0.82, 0.76) }); y -= h;
         }
         y -= 8;
-      }
+      } else if (t.type !== "space" && t.raw?.trim()) flow([{ t: clean(t.raw.trim()), f: F.r }], 11, x0, width, 15.5); // Raw HTML and footnotes are printed, never dropped.
     }
   };
   block(marked.lexer(md), M, W);
@@ -862,10 +892,12 @@ export const pdfTools: Record<string, Run> = disclosed({
   "fill-pdf": async ([f], p) => {
     const { doc } = await open(f);
     refuseXfa(f);
-    const form = doc.getForm();
+    const form = doc.getForm(), helvetica = await doc.embedFont(StandardFonts.Helvetica);
     for (const fd of form.getFields()) {
       const v = p.values?.[fd.getName()];
       if (v === undefined) continue;
+      const missing = typeof v === "string" ? unsupported(helvetica, v) : [];
+      if (missing.length) throw new Say(`The field “${fd.getName()}” cannot show these characters, so no file was made: ${listChars(missing)}`);
       if (fd instanceof PDFTextField) fd.setText(String(v));
       else if (fd instanceof PDFCheckBox) { if (v) fd.check(); else fd.uncheck(); }
       else if ((fd instanceof PDFDropdown || fd instanceof PDFRadioGroup || fd instanceof PDFOptionList) && v) fd.select(String(v));
@@ -959,7 +991,7 @@ export const pdfTools: Record<string, Run> = disclosed({
     return [{ ...zipOut(`${stem(f.name)}-images.zip`, entries), note: `${entries.length} images` }];
   },
   "ocr-pdf": async ([f], p, ctx) => {
-    const { doc, bytes } = await open(f), pages = doc.getPages(), font = await doc.embedFont(StandardFonts.Helvetica); let words = 0;
+    const { doc, bytes } = await open(f), pages = doc.getPages(), font = await doc.embedFont(StandardFonts.Helvetica); let words = 0; const lost = new Set<string>();
     for (let i = 0; i < pages.length; i++) {
       ctx.progress(i / pages.length, `Reading page ${i + 1} of ${pages.length}`);
       const b = await render(ctx, bytes, f.id, i, p.dpi), width = b.width, height = b.height;
@@ -968,7 +1000,8 @@ export const pdfTools: Record<string, Run> = disclosed({
       v.begin();
       const ops: PDFOperator[] = [PDFOperator.of("BT" as any), PDFOperator.of("Tr" as any, [PDFNumber.of(3)])];
       for (const w of r.words) {
-        const t = w.text.replace(/[^\x20-\x7e\xa0-\xff]/g, ""); if (!t.trim()) continue;
+        const bad = unsupported(font, w.text); bad.forEach((x) => lost.add(x));
+        const t = [...w.text.normalize("NFC")].filter((x) => x >= " " && !bad.includes(x)).join(""); if (!t.trim()) continue;
         const size = Math.max(1, (w.y1 - w.y0) * sy), wide = font.widthOfTextAtSize(t, size), target = (w.x1 - w.x0) * sx;
         ops.push(PDFOperator.of("Tf" as any, [key, PDFNumber.of(size)]), PDFOperator.of("Tz" as any, [PDFNumber.of(wide ? (target / wide) * 100 : 100)]), PDFOperator.of("Tm" as any, [1, 0, 0, 1, w.x0 * sx, v.H - w.y1 * sy].map((x) => PDFNumber.of(x))), PDFOperator.of("Tj" as any, [font.encodeText(t)]));
         words++;
@@ -977,7 +1010,7 @@ export const pdfTools: Record<string, Run> = disclosed({
       pg.pushOperators(...ops);
       v.end();
     }
-    return [out(`${stem(f.name)}-searchable.pdf`, await saved(doc), `Added ${words.toLocaleString()} searchable words.`)];
+    return [out(`${stem(f.name)}-searchable.pdf`, await saved(doc), `Added ${words.toLocaleString()} searchable words.${lost.size ? ` These characters are visible on the page but not searchable: ${listChars([...lost])}` : ""}`)];
   },
   "markdown-to-pdf": async (files, p) => {
     const text = files[0] ? new TextDecoder().decode(await bytesOf(files[0])) : p.text;

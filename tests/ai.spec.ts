@@ -34,6 +34,16 @@ test("OCR PDF adds a searchable layer", async ({ page }) => {
   await page.locator("#panel > .btn").first().click();
   await expect(page.locator(".textout")).toHaveValue(/Lathe/, { timeout: 30_000 });
 });
+test("OCR PDF keeps accented letters, currency and curly quotes", async ({ page }) => {
+  const png = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="260"><rect width="1400" height="260" fill="#fff"/><text x="40" y="160" font-family="Georgia, serif" font-size="84" fill="#000">Le cœur coûte €1000</text></svg>`)).png().toBuffer();
+  const d = await PDFDocument.create(), im = await d.embedPng(png); d.addPage([700, 130]).drawImage(im, { x: 0, y: 0, width: 700, height: 130 });
+  const [o] = await run(page, "ocr-pdf", { name: "scan.pdf", mimeType: "application/pdf", buffer: Buffer.from(await d.save()) }, { dpi: 200, lang: "fra" });
+  await page.goto("/pdf-to-text");
+  await page.locator("#stage input[type=file]").first().setInputFiles({ name: "o.pdf", mimeType: "application/pdf", buffer: Buffer.from(o.b64, "base64") });
+  await page.locator("#panel > .btn").first().click();
+  await expect(page.locator(".textout")).toHaveValue(/œ/, { timeout: 30_000 });
+  await expect(page.locator(".textout")).toHaveValue(/€/);
+});
 // Headless Chromium has no GPU here, so this exercises the CPU model, which is built for people: it gets a portrait.
 test("background removal produces a real matte", async ({ page }) => {
   const r = await fetch("https://storage.googleapis.com/mediapipe-assets/portrait.jpg"); expect(r.ok).toBe(true);
