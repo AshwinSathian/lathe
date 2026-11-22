@@ -123,7 +123,7 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.18); }
 .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border: 0; border-radius: 7px; background: var(--act); color: var(--on-act); font-weight: 650; cursor: pointer; text-decoration: none; transition: transform .1s, filter .15s; }
 .btn:hover { filter: brightness(1.1); } .btn:active { transform: scale(.98); } .btn[disabled] { opacity: .45; cursor: not-allowed; }
 .btn.alt { background: var(--sunk); color: var(--ink); } .btn.small { min-height: 36px; padding: 0 12px; font-size: var(--step--1); }
-.progress { display: none; gap: 5px; } .progress.on { display: grid; }
+.progress { display: none; gap: 5px; } .progress.on { display: grid; } .progress .btn { justify-self: start; }
 .progress span { font-size: var(--step--1); color: var(--soft); min-height: 1.4em; overflow-wrap: anywhere; }
 .meter { height: 6px; border-radius: 3px; background: var(--sunk); overflow: hidden; }
 .meter i { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(var(--p, 0)); background: linear-gradient(90deg, #6d80a3, #eef2f7 50%, #c99a45); transition: transform .2s linear; }

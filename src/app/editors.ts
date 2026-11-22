@@ -144,6 +144,8 @@ export async function pageMarkup(view: HTMLElement, f: In, boxes: Box[], changed
     sheet.className = "docpage";
     list.append(sheet);
     if (onSurface) onSurface(i, sheet); else regionSurface(sheet, i, boxes, changed);
+    // Marks outlive a redraw of the page, so every mark that will be applied stays on screen.
+    boxes.filter((b) => b.page === i).forEach((b) => addBox(sheet, b, boxes, changed));
   });
 }
 export { addBox };

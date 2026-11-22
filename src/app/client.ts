@@ -7,14 +7,14 @@ const jobs = new Map<number, { res: (o: any) => void; rej: (e: Error) => void; o
 
 function engine() {
   if (worker) return worker;
-  worker = new Worker(new URL("../engine/worker.ts", import.meta.url), { type: "module" });
-  worker.onmessage = async ({ data: m }) => {
+  const w = worker = new Worker(new URL("../engine/worker.ts", import.meta.url), { type: "module" });
+  w.onmessage = async ({ data: m }) => {
     if (m.t === "call") {
       try {
         const result = await OPS[m.op](m.args);
         const transfer = result instanceof ImageBitmap ? [result] : Array.isArray(result) && result[0] instanceof ImageBitmap ? result : [];
-        worker.postMessage({ t: "reply", id: m.id, result }, { transfer });
-      } catch (e) { worker.postMessage({ t: "reply", id: m.id, error: (e as Error).message }); }
+        w.postMessage({ t: "reply", id: m.id, result }, { transfer });
+      } catch (e) { w.postMessage({ t: "reply", id: m.id, error: (e as Error).message }); }
       return;
     }
     const j = jobs.get(m.job);
@@ -22,8 +22,16 @@ function engine() {
     if (m.t === "progress") j.onProgress?.(m.p, m.label);
     else { jobs.delete(m.job); if (m.t === "done") j.res(m.outs); else j.rej(new Error(m.error)); }
   };
-  worker.onerror = (e) => { for (const j of jobs.values()) j.rej(new Error(e.message || "The engine stopped. The file may be too large for this device.")); jobs.clear(); worker = null; };
+  w.onerror = (e) => { for (const j of jobs.values()) j.rej(new Error(e.message || "The engine stopped. The file may be too large for this device.")); jobs.clear(); worker = null; };
   return worker;
+}
+
+/** Stops everything the engine is doing. The next job starts a fresh worker. */
+export function cancelJobs() {
+  worker?.terminate(); worker = null;
+  const stopped = Object.assign(new Error("Cancelled"), { name: "AbortError" });
+  for (const j of jobs.values()) j.rej(stopped);
+  jobs.clear();
 }
 
 export const runTool = (tool: string, files: In[], params: any, opts: { preview?: boolean; onProgress?: (p: number, label?: string) => void } = {}) => new Promise<Out[]>((res, rej) => {

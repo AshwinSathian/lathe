@@ -2,15 +2,26 @@
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.5] - 2026-11-22
 
 ### Security
 
+- Redaction and signature marks can no longer be applied without being visible. Marks from a previous file are discarded, and a reopened editor shows every mark it will write
 - The test hook that exposed passwords and output on `window` is gone for normal visitors
+- Each release replaces the engines the service worker cached. Old pages and engines are no longer served from a retained cache
+
+### Added
+
+- Cancel for running jobs
+- Check the result at reading size, then go back to editing with your marks intact
 
 ### Fixed
 
-- Each release now replaces the engines the service worker cached, and old caches are removed
+- A result from a previous file can no longer appear under a new one
+- Changing a setting labels the finished result as out of date
+- Files a tool cannot use are named instead of silently ignored
+- Removing the last file no longer reloads the page
+- Redact, Sign and Organise explain a damaged or locked file instead of showing a blank page
 
 ## [0.1.4] - 2026-11-22
 
@@ -70,6 +81,7 @@ First public release, with 60 tools and 22 preset format conversions.
 - Markdown links accept only web and mail addresses
 - Files are stored for a tool handoff only when you choose the next tool
 
+[0.1.5]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.5
 [0.1.4]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.4
 [0.1.3]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.3
 [0.1.2]: https://github.com/AshwinSathian/lathe/releases/tag/v0.1.2
